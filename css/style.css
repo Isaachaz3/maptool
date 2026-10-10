@@ -139,3 +139,8 @@ dialog.place select { width: 100%; }
 #placeCard.hidden { opacity: 0; transform: translateX(-50%) translateY(30px); pointer-events: none; }
 #placeCard h3 { margin: 2px 0 8px; font: 700 30px "Alegreya SC", Georgia, serif; color: #f4e6c2; letter-spacing: .04em; }
 #placeCard p { margin: 0; font: 18px/1.45 "Alegreya", Georgia, serif; color: #e2d6bb; white-space: pre-wrap; }
+dialog.place .wiki { background: #12151b; border: 1px solid var(--line); border-radius: 7px; padding: 8px 10px; margin: 6px 0;
+  max-height: 190px; overflow-y: auto; font: 13.5px/1.45 Georgia, serif; color: #d8d2c4; white-space: pre-wrap; }
+dialog.place .wiki:empty { display: none; }
+dialog.place .wiki a { color: var(--accent); }
+.wiki-src { display: block; margin-top: 6px; font: 12px system-ui; color: var(--muted); }

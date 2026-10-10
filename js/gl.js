@@ -373,6 +373,17 @@ void main() {
     vec3 autumn = mix(vec3(l * 1.3, l * 0.82, l * 0.42), vec3(l * 1.25, l * 1.05, l * 0.45), noise(p * 0.08));
     orig = mix(orig, autumn, mF * SW.z * 0.65);
     orig = mix(orig, vec3(0.97, 0.98, 1.0) * mix(0.55, 1.05, smoothstep(0.15, 0.85, l)), snow * (1.0 - mW) * 0.85);
+    // цветокоррекция: чуть контрастнее и насыщеннее
+    orig = clamp((orig - 0.5) * 1.16 + 0.5, 0.0, 1.0);
+    orig = clamp(mix(vec3(dot(orig, vec3(0.3, 0.59, 0.11))), orig, 1.12), 0.0, 1.0);
+    // отмывка рельефа по разметке — горы на картинке становятся объёмными
+    if (sd(t0.b, SDF_R) > -10.0 || sd(t1.r, SDF_R) > -10.0) {
+      float eo = max(px * 1.2, 0.3);
+      float ho = heightAt(p);
+      vec3 no = normalize(vec3(-(heightAt(p + vec2(eo, 0.0)) - ho) / eo * 18.0, -(heightAt(p + vec2(0.0, eo)) - ho) / eo * 18.0, 1.0));
+      vec3 Lo = normalize(vec3(-1.0, -1.0, 1.2));
+      orig *= mix(1.0, clamp(dot(no, Lo) / Lo.z, 0.5, 1.3), 0.55);
+    }
   }
 
   if (uMix < 0.999) {
@@ -533,6 +544,19 @@ void main() {
     vec3 cloudCol = mix(vec3(0.66, 0.68, 0.7), vec3(0.97, 0.97, 0.98), thick);
     float vis = (1.0 - smoothstep(1.0, 2.8, uScale)) * 0.92;
     col = mix(col, cloudCol, cl * vis);
+  }
+
+  // ---------- солнце сверху: тёплый свет, лёгкие лучи, верх светлее низа ----------
+  {
+    vec2 sun = vec2(0.3 + 0.12 * sin(uTime * 0.013), -0.25);
+    vec2 dv = (vScr - sun) * vec2(1.5, 1.0);
+    float d = length(dv);
+    float ang = atan(dv.x, dv.y);
+    float rays = 0.5 + 0.5 * sin(ang * 23.0 + uTime * 0.05) * sin(ang * 9.0 - uTime * 0.03);
+    float glow = exp(-d * d * 1.6);
+    col += vec3(1.0, 0.85, 0.58) * (0.13 * glow + 0.05 * glow * rays);
+    col *= mix(1.05, 0.92, smoothstep(0.0, 1.0, vScr.y));
+    col *= vec3(1.02, 1.0, 0.96);
   }
 
   // ---------- туман войны ----------

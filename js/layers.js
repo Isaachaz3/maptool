@@ -193,14 +193,16 @@ export function settlementLayer(getState, fog, { player = false } = {}) {
   return {
     draw(ctx, v) {
       const S = getState();
-      if (!S.showSettlements || !v.renderer || v.scale < 0.25) return;
-      const a = Math.min(1, (v.scale - 0.25) / 0.25) * Math.max(0, 1 - S.styleMix * 1.6);
+      if (!S.showSettlements || !v.renderer || v.scale < 0.12) return;
+      const a = Math.max(0, 1 - S.styleMix * 1.6);
       if (a <= 0.02) return;
       const r = v.viewRect();
       ctx.globalAlpha = a;
       const k = Math.max(0.55, Math.min(1.6, Math.sqrt(v.scale)));
       for (const p of pts) {
         if (p.x < r.x - 20 || p.y < r.y - 20 || p.x > r.x + r.w + 20 || p.y > r.y + r.h + 20) continue;
+        // мелкие места появляются при приближении, города видны издалека
+        if (p.type !== 'city' && v.scale < 0.3) continue;
         if (player && S.fogEnabled && fog.hiddenAt(p.x, p.y)) continue;
         const [x, y] = v.toScreen(p.x, p.y);
         drawTown(ctx, x, y, k, p.type, (p.x * 7 + p.y * 13) | 0);
@@ -253,6 +255,21 @@ function drawTown(ctx, x, y, k, type, seed) {
       ctx.fillStyle = roof;
       ctx.beginPath(); ctx.moveTo(x + dx * k - 3 * k, y - hh * k); ctx.lineTo(x + dx * k, y - (hh + 4) * k); ctx.lineTo(x + dx * k + 3 * k, y - hh * k); ctx.fill();
     }
+  } else if (type === 'ruin') {
+    // обломки стен
+    ctx.fillStyle = '#7a6a55'; ctx.strokeStyle = 'rgba(20,14,8,0.9)'; ctx.lineWidth = 1;
+    for (const [dx, h] of [[-6, 7], [-1, 10], [4, 5]]) {
+      ctx.beginPath();
+      ctx.moveTo(x + dx * k, y); ctx.lineTo(x + dx * k, y - h * k); ctx.lineTo(x + (dx + 2) * k, y - (h - 2) * k);
+      ctx.lineTo(x + (dx + 4) * k, y - h * k + 1); ctx.lineTo(x + (dx + 4) * k, y); ctx.closePath();
+      ctx.fill(); ctx.stroke();
+    }
+  } else if (type === 'temple' || type === 'site') {
+    // храм/святилище: колонны под фронтоном
+    ctx.fillStyle = '#b8ab90'; ctx.strokeStyle = 'rgba(20,14,8,0.9)'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(x - 7 * k, y - 8 * k); ctx.lineTo(x, y - 12 * k); ctx.lineTo(x + 7 * k, y - 8 * k); ctx.closePath(); ctx.fill(); ctx.stroke();
+    for (const dx of [-5, -1.5, 2]) { ctx.fillRect(x + dx * k, y - 8 * k, 2.5 * k, 8 * k); ctx.strokeRect(x + dx * k, y - 8 * k, 2.5 * k, 8 * k); }
+    ctx.fillRect(x - 7 * k, y - 0.5 * k, 14 * k, 2 * k);
   } else {
     house(ctx, x - 3 * k, y, 6 * k, 8 * k, roof);
     house(ctx, x + 3.5 * k, y + 1.5 * k, 5 * k, 6.5 * k, ROOFS[(Math.abs(seed) + 2) % 3]);

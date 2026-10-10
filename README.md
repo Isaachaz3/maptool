@@ -79,3 +79,13 @@ python3 -m http.server 8000
 ```
 
 и открыть http://localhost:8000.
+
+## Места и энциклопедия
+
+- `data/places.json` — 297 поселений Фаэруна (столицы, города, порты, крепости, руины, храмы) из проекта
+  [LoreMaps](https://github.com/loremaps/LoreMaps), координаты пересчитаны на нашу карту
+  (`tools/import_loremaps.py`; их карта — та же картинка Pocket Plane Group, сдвиг найден сопоставлением SIFT).
+- Значки поселений (`data/settlements.json`) оставлены только для мест из этого списка.
+- Карточка места подгружает вводный текст статьи с [Forgotten Realms Wiki](https://forgottenrealms.fandom.com)
+  (тексты вики — CC BY-SA), его можно показать игрокам на телевизоре.
+- Шрифты Alegreya SC, Alegreya и Cinzel (SIL Open Font License) лежат в `assets/fonts/`.

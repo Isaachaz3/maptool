@@ -175,12 +175,12 @@ export function placeLabelLayer(places, getState, fog, { player = false, onPlace
         if (p.x < r.x - pad || p.y < r.y - pad || p.x > r.x + r.w + pad || p.y > r.y + r.h + pad) continue;
         const town = SETTLEMENT.has(p.kind) && p.marker ? TOWN[p.kind] : null;
         const st = STYLE[p.kind] || STYLE.other;
-        if (town ? v.scale < town.min : (v.scale < st.min || v.scale > st.max)) continue;
+        if (town ? v.scale < (p.capital ? 0.12 : town.min) : (v.scale < st.min || v.scale > st.max)) continue;
         if (player && S.fogEnabled && !p.known) {
           const ax = town ? p.marker[0] : p.x, ay = town ? p.marker[1] : p.y;
           if (fog.hiddenAt(ax, ay)) continue;
         }
-        cand.push([town ? town.pri : st.pri + Math.min(10, (p.lines?.[0]?.size || 8) / 4), p, town, st]);
+        cand.push([town ? town.pri + (p.capital ? 20 : 0) : st.pri + Math.min(10, (p.lines?.[0]?.size || 8) / 4), p, town, st]);
       }
       cand.sort((a, b) => b[0] - a[0]);
       const occ = new Occupancy();
@@ -211,8 +211,9 @@ function textStroke(ctx, text, x, y, color, a) {
 
 function drawTownName(ctx, v, p, name, t, occ, placed, mixA) {
   const [mx, my] = v.toScreen(p.marker[0], p.marker[1]);
-  const size = Math.round(Math.min(t.base * 1.45, t.base * (0.85 + 0.25 * Math.sqrt(v.scale))));
-  const font = `${t.w} ${size}px "Alegreya SC", "Palatino Linotype", Georgia, serif`;
+  const base = p.capital ? t.base + 3 : t.base;
+  const size = Math.round(Math.min(base * 1.45, base * (0.85 + 0.25 * Math.sqrt(v.scale))));
+  const font = `${p.capital ? 700 : t.w} ${size}px "Alegreya SC", "Palatino Linotype", Georgia, serif`;
   ctx.font = font;
   const w = ctx.measureText(name).width;
   const k = Math.max(0.55, Math.min(1.6, Math.sqrt(v.scale)));
@@ -289,4 +290,24 @@ function drawAreaName(ctx, v, p, name, st, occ, placed, mixA, lang) {
   const all = boxes.reduce((m, b) => ({ x0: Math.min(m.x0, b.x0), x1: Math.max(m.x1, b.x1), y0: Math.min(m.y0, b.y0), y1: Math.max(m.y1, b.y1) }),
     { x0: 1e9, x1: -1e9, y0: 1e9, y1: -1e9 });
   placed.push({ id: p.id, ...all });
+}
+
+// Статья с Forgotten Realms Wiki (MediaWiki action=parse, CORS через origin=*), как в LoreMaps
+const wikiCache = new Map();
+export const WIKI = 'https://forgottenrealms.fandom.com';
+export function wikiUrl(title) { return `${WIKI}/wiki/${encodeURIComponent(title.replace(/ /g, '_'))}`; }
+export async function wikiSummary(title) {
+  if (wikiCache.has(title)) return wikiCache.get(title);
+  const params = new URLSearchParams({ action: 'parse', page: title, prop: 'text', format: 'json', redirects: '1', origin: '*', disablelimitreport: '1' });
+  const job = fetch(`${WIKI}/api.php?${params}`).then(r => r.json()).then(d => {
+    if (d.error) throw new Error(d.error.info || 'статья не найдена');
+    const doc = new DOMParser().parseFromString(d.parse.text['*'], 'text/html');
+    doc.querySelectorAll('aside, table, .toc, sup, .mw-editsection, style, script, figure, .thumb').forEach(e => e.remove());
+    const paras = [...doc.querySelectorAll('p')].map(p => p.textContent.replace(/\s+/g, ' ').trim()).filter(t => t.length > 40);
+    const img = doc.querySelector('img[data-src], img[src*="static.wikia"]');
+    return { title: d.parse.title, text: paras.slice(0, 3).join('\n\n'), url: wikiUrl(d.parse.title) };
+  });
+  wikiCache.set(title, job);
+  job.catch(() => wikiCache.delete(title));
+  return job;
 }

@@ -7,7 +7,7 @@ import {
 } from './state.js';
 import { trailLayer, waypointLayer, partyLayer, pingLayer, drawRuler, scaleBarLayer, settlementLayer } from './layers.js';
 import { MapRenderer } from './gl.js';
-import { Places, placeLabelLayer, KIND_NAMES } from './places.js';
+import { Places, placeLabelLayer, KIND_NAMES, wikiSummary, wikiUrl } from './places.js';
 import { renderSettings } from './state.js';
 
 const $ = id => document.getElementById(id);
@@ -594,6 +594,22 @@ function openPlace(id) {
   $('plNotes').value = p.notes || '';
   $('plKnown').checked = !!p.known;
   $('plHidden').checked = !!p.hiddenLabel;
+  // статья с Forgotten Realms Wiki
+  const wiki = $('plWiki');
+  wiki.textContent = '';
+  wiki.dataset.text = '';
+  const title = p.wiki || p.name;
+  if (title) {
+    wiki.textContent = 'Загружаю статью с Forgotten Realms Wiki…';
+    wikiSummary(title).then(w => {
+      if (placeOpen !== p) return;
+      wiki.dataset.text = w.text;
+      wiki.innerHTML = `${esc(w.text || 'В статье нет вводного текста.')}<a class="wiki-src" href="${w.url}" target="_blank" rel="noopener">Forgotten Realms Wiki: ${esc(w.title)} ↗ (CC BY-SA)</a>`;
+    }).catch(err => {
+      if (placeOpen !== p) return;
+      wiki.innerHTML = `Статья не найдена (${esc(err.message)}). <a href="${wikiUrl(title)}" target="_blank" rel="noopener">Поискать на вики ↗</a>`;
+    });
+  }
   const pd = $('placeDialog');
   pd.returnValue = '';
   if (!pd.open) pd.showModal();
@@ -612,7 +628,8 @@ $('plShow').onclick = () => {
   savePlaceEdits();
   const lang = S.labelLang || 'en';
   bc.postMessage({ t: 'showPlace', place: { name: lang === 'ru' && $('plNameRu').value ? $('plNameRu').value : $('plName').value,
-    kind: KIND_NAMES[$('plKind').value] || '', desc: $('plDesc').value, x: a.x, y: a.y } });
+    kind: (p.capital ? 'Столица · ' : '') + (KIND_NAMES[$('plKind').value] || ''),
+    desc: $('plDesc').value || $('plWiki').dataset.text || '', x: a.x, y: a.y } });
   toast('Карточка показана игрокам (скрыть — Esc на их экране или кнопка ещё раз через 20 с)');
 };
 function savePlaceEdits() {
