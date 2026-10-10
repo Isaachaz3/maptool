@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Ходилка по Фаэруну — мастер</title>
+<link rel="stylesheet" href="assets/fonts.css">
 <link rel="stylesheet" href="css/style.css">
 </head>
 <body class="gm">
@@ -106,6 +107,16 @@
   </section>
 
   <section>
+    <h2>Энциклопедия</h2>
+    <input type="search" id="encSearch" placeholder="Поиск места: Waterdeep, Врата…" autocomplete="off">
+    <div id="encResults"></div>
+    <label>Язык названий на карте
+      <select id="labelLang"><option value="en">Как на карте (English)</option><option value="ru">Русский, где есть перевод</option></select>
+    </label>
+    <p class="hint" id="encInfo">Клик по названию на карте открывает карточку места.</p>
+  </section>
+
+  <section>
     <h2>Экран игроков</h2>
     <button id="openPlayer" class="primary">Открыть экран игроков ↗</button>
     <div id="playerStatus" class="hint"></div>
@@ -150,6 +161,32 @@
       <button type="button" id="wpDelete" class="danger">Удалить</button>
       <span class="spacer"></span>
       <button type="button" id="wpCancel">Отмена</button>
+      <button value="save" class="primary">Сохранить</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="placeDialog" class="place">
+  <form method="dialog">
+    <div class="pkind" id="plKindLabel"></div>
+    <h3 id="plTitle"></h3>
+    <div class="row2">
+      <label>Название <input type="text" id="plName" autocomplete="off"></label>
+      <label>По-русски <input type="text" id="plNameRu" autocomplete="off"></label>
+    </div>
+    <label>Тип <select id="plKind"></select></label>
+    <label>Описание (его увидят игроки при показе) <textarea id="plDesc" rows="5"></textarea></label>
+    <label>Заметки мастера (игрокам не видны) <textarea id="plNotes" rows="3"></textarea></label>
+    <label class="check"><input type="checkbox" id="plKnown"> Известно игрокам (название видно и под туманом)</label>
+    <label class="check"><input type="checkbox" id="plHidden"> Не показывать подпись на карте</label>
+    <div class="row">
+      <button type="button" id="plGo">⌖ К месту</button>
+      <button type="button" id="plAim">🧭 Направить отряд</button>
+      <button type="button" id="plShow">📺 Показать игрокам</button>
+    </div>
+    <div class="row">
+      <button type="button" id="plClose">Закрыть</button>
+      <span class="spacer"></span>
       <button value="save" class="primary">Сохранить</button>
     </div>
   </form>

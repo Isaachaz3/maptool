@@ -37,6 +37,9 @@ export function defaultState() {
     fogGhost: 0.2,          // насколько сквозь туман видна местность
     quality: 'medium',      // high | medium | low
     showSettlements: true,
+    labelLang: 'en',        // язык подписей: en | ru
+    placeEdits: {},         // правки мастера к местам энциклопедии: id → поля
+    customPlaces: [],
     waypoints: [],
   };
 }

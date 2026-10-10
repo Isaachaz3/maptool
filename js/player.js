@@ -4,6 +4,7 @@ import { Fog } from './fog.js';
 import { loadState, loadFogData, loadView, saveView, channel, defaultState } from './state.js';
 import { trailLayer, waypointLayer, partyLayer, pingLayer, drawRuler, scaleBarLayer, settlementLayer } from './layers.js';
 import { MapRenderer } from './gl.js';
+import { Places, placeLabelLayer } from './places.js';
 import { renderSettings } from './state.js';
 
 const $ = id => document.getElementById(id);
@@ -18,8 +19,12 @@ let ruler = null;
 let connected = false;
 
 await fog.load(loadFogData());
+const places = new Places();
+places.ready.then(() => { places.merge(S); viewer.invalidate(); });
 try {
-  viewer.renderer = new MapRenderer($('gl'), viewer, fog, { getSettings: () => renderSettings(S, true) });
+  viewer.renderer = new MapRenderer($('gl'), viewer, fog, {
+    getSettings: () => ({ ...renderSettings(S, true), labels: S.showLabels && !places.list.length }),
+  });
   viewer.renderer.load().catch(e => { console.error(e); viewer.renderer = null; });
 } catch (e) {
   console.warn('WebGL недоступен, обычный режим', e);
@@ -29,6 +34,7 @@ viewer.fps = renderSettings(S, true).fps;
 viewer.layers.push(
   trailLayer(() => S, () => S.showTrailToPlayers),
   settlementLayer(() => S, fog, { player: true }),
+  placeLabelLayer(places, () => S, fog, { player: true }),
   fog.layer(() => 1, () => S.fogEnabled),
   // метки, которые мастер сделал видимыми, показываем даже в тумане — игроки о них «слышали»
   waypointLayer(() => S.waypoints.filter(w => w.visible !== false)),
@@ -66,6 +72,7 @@ bc.onmessage = ({ data: m }) => {
     const moved = !S || S.party.x !== m.state.party.x || S.party.y !== m.state.party.y;
     S = { ...defaultState(), ...m.state };
     viewer.fps = renderSettings(S, true).fps;
+    places.merge(S);
     if (moved && S.playerCamera === 'follow') {
       const [sx, sy] = viewer.toScreen(S.party.x, S.party.y);
       // плавно двигаем, только если отряд уходит от центра
@@ -82,6 +89,8 @@ bc.onmessage = ({ data: m }) => {
     viewer.animateTo(f.cx, f.cy, f.scale, m.ms ?? 600);
   } else if (m.t === 'ping') {
     pings.add(m.x, m.y, m.color); viewer.invalidate();
+  } else if (m.t === 'showPlace') {
+    showPlaceCard(m.place);
   } else if (m.t === 'ruler') {
     ruler = m.ruler; viewer.invalidate();
   }
@@ -123,3 +132,18 @@ window.addEventListener('storage', e => {
   if (e.key === 'faerun-walker:state:v1' && e.newValue) { S = { ...defaultState(), ...JSON.parse(e.newValue) }; viewer.invalidate(); }
   if (e.key === 'faerun-walker:fog:v1' && e.newValue) fog.load(e.newValue).then(() => viewer.invalidate());
 });
+
+// ---------- карточка места от мастера ----------
+let cardTimer = null;
+function showPlaceCard(p) {
+  const el = $('placeCard');
+  el.querySelector('.pkind').textContent = p.kind || '';
+  el.querySelector('h3').textContent = p.name;
+  el.querySelector('p').textContent = p.desc || '';
+  el.classList.remove('hidden');
+  if (p.x != null) viewer.animateTo(p.x, p.y, Math.max(viewer.scale, 1.2), 900);
+  clearTimeout(cardTimer);
+  cardTimer = setTimeout(() => el.classList.add('hidden'), 25000);
+}
+window.addEventListener('keydown', e => { if (e.code === 'Escape') $('placeCard').classList.add('hidden'); });
+$('placeCard').addEventListener('click', () => $('placeCard').classList.add('hidden'));

@@ -7,6 +7,7 @@ import {
 } from './state.js';
 import { trailLayer, waypointLayer, partyLayer, pingLayer, drawRuler, scaleBarLayer, settlementLayer } from './layers.js';
 import { MapRenderer } from './gl.js';
+import { Places, placeLabelLayer, KIND_NAMES } from './places.js';
 import { renderSettings } from './state.js';
 
 const $ = id => document.getElementById(id);
@@ -19,10 +20,15 @@ const fog = new Fog(info.width, info.height);
 window.mapViewer = viewer; // для отладки из консоли
 const bc = channel();
 const pings = pingLayer();
+const places = new Places();
+places.ready.then(() => { places.merge(S); renderEnc(); viewer.invalidate(); });
 startRenderer();
 function startRenderer() {
   try {
-    viewer.renderer = new MapRenderer($('gl'), viewer, fog, { getSettings: () => renderSettings(S, false) });
+    // старые растровые подписи — только пока нет газеттира (data/places.json)
+    viewer.renderer = new MapRenderer($('gl'), viewer, fog, {
+      getSettings: () => ({ ...renderSettings(S, false), labels: S.showLabels && !places.list.length }),
+    });
     if (viewer.renderer.software) {
       setTimeout(() => toast('Браузер рисует карту без видеокарты — будет медленно. Включите аппаратное ускорение или качество «Низкое».'), 800);
     }
@@ -51,6 +57,7 @@ function commit({ broadcast = true } = {}) {
   clearTimeout(saveTimer);
   saveTimer = setTimeout(() => { if (!saveState(S)) toast('Не удалось сохранить (переполнено хранилище)'); }, 150);
   if (broadcast) bc.postMessage({ t: 'state', state: S });
+  places.merge(S);
   renderPanel();
   viewer.invalidate();
 }
@@ -270,7 +277,13 @@ function setTool(name) {
   viewer.invalidate();
 }
 
-viewer.onClick = (p, e) => { if (e.shiftKey) ping(p[0], p[1]); };
+viewer.onClick = (p, e) => {
+  if (e.shiftKey) { ping(p[0], p[1]); return; }
+  // клик по названию — карточка места
+  const [sx, sy] = viewer.toScreen(p[0], p[1]);
+  const hit = labelLayer.hits().find(b => sx >= b.x0 && sx <= b.x1 && sy >= b.y0 && sy <= b.y1);
+  if (hit) openPlace(hit.id);
+};
 
 function ping(x, y) {
   pings.add(x, y, '#ffdd33');
@@ -293,10 +306,12 @@ function hitWaypoint(p) {
 }
 
 // ---------- слои ----------
+const labelLayer = placeLabelLayer(places, () => S, fog);
 viewer.layers.push(
   fog.layer(() => S.gmFogOpacity, () => S.fogEnabled),
   trailLayer(() => S),
   settlementLayer(() => S, fog),
+  labelLayer,
   {
     // круг обзора и предпросмотр хода
     draw(ctx, v) {
@@ -540,7 +555,86 @@ function renderPanel() {
   $('quality').value = S.quality;
   $('fogGhost').value = S.fogGhost; $('fogGhostVal').textContent = Math.round(S.fogGhost * 100) + '%';
   viewer.fps = renderSettings(S, false).fps;
+  $('labelLang').value = S.labelLang || 'en';
 }
+
+// ---------- энциклопедия ----------
+$('encSearch').addEventListener('input', renderEnc);
+$('labelLang').addEventListener('change', () => { S.labelLang = $('labelLang').value; commit(); });
+function renderEnc() {
+  const q = $('encSearch').value;
+  const el = $('encResults');
+  if (!places.list.length) { $('encInfo').textContent = 'Список мест ещё не собран (data/places.json).'; el.innerHTML = ''; return; }
+  $('encInfo').textContent = `Мест в энциклопедии: ${places.list.length}. Клик по названию на карте открывает карточку.`;
+  const res = places.search(q, 50);
+  el.innerHTML = '';
+  for (const p of res) {
+    const ax = p.marker ? p.marker[0] : p.x, ay = p.marker ? p.marker[1] : p.y;
+    const km = distKm(S.party.x, S.party.y, ax, ay, S.kmPerPx);
+    const row = document.createElement('div');
+    row.className = 'pl';
+    row.innerHTML = `<b>${esc(p.name)}</b>${p.name_ru ? `<span class="hint">${esc(p.name_ru)}</span>` : ''}<small>${KIND_NAMES[p.kind] || ''} · ${fmtKm(km)}</small>`;
+    row.onclick = () => openPlace(p.id);
+    el.appendChild(row);
+  }
+}
+$('plKind').innerHTML = Object.entries(KIND_NAMES).map(([k, n]) => `<option value="${k}">${n}</option>`).join('');
+let placeOpen = null;
+function placeAnchor(p) { return p.marker ? { x: p.marker[0], y: p.marker[1] } : { x: p.x, y: p.y }; }
+function openPlace(id) {
+  const p = places.byId.get(id);
+  if (!p) return;
+  placeOpen = p;
+  $('plKindLabel').textContent = KIND_NAMES[p.kind] || '';
+  $('plTitle').textContent = p.name_ru ? `${p.name} · ${p.name_ru}` : p.name;
+  $('plName').value = p.name || '';
+  $('plNameRu').value = p.name_ru || '';
+  $('plKind').value = p.kind || 'other';
+  $('plDesc').value = p.desc_ru || '';
+  $('plNotes').value = p.notes || '';
+  $('plKnown').checked = !!p.known;
+  $('plHidden').checked = !!p.hiddenLabel;
+  const pd = $('placeDialog');
+  pd.returnValue = '';
+  if (!pd.open) pd.showModal();
+}
+$('plClose').onclick = () => $('placeDialog').close('cancel');
+$('plGo').onclick = () => { const a = placeAnchor(placeOpen); $('placeDialog').close('cancel'); viewer.animateTo(a.x, a.y, Math.max(viewer.scale, 1.2)); };
+$('plAim').onclick = () => {
+  const a = placeAnchor(placeOpen);
+  const b = bearingTo(S.party.x, S.party.y, a.x, a.y);
+  const km = distKm(S.party.x, S.party.y, a.x, a.y, S.kmPerPx);
+  setBearing(b);
+  toast(`Азимут на «${placeOpen.name}»: ${Math.round(b)}° ${rumb(b)}, ${fmtKm(km)} (${Math.ceil(km / S.stepKm)} ход.)`);
+};
+$('plShow').onclick = () => {
+  const p = placeOpen, a = placeAnchor(p);
+  savePlaceEdits();
+  const lang = S.labelLang || 'en';
+  bc.postMessage({ t: 'showPlace', place: { name: lang === 'ru' && $('plNameRu').value ? $('plNameRu').value : $('plName').value,
+    kind: KIND_NAMES[$('plKind').value] || '', desc: $('plDesc').value, x: a.x, y: a.y } });
+  toast('Карточка показана игрокам (скрыть — Esc на их экране или кнопка ещё раз через 20 с)');
+};
+function savePlaceEdits() {
+  const p = placeOpen;
+  if (!p) return;
+  const e = { ...(S.placeEdits[p.id] || {}) };
+  const set = (k, v, orig) => { if (v !== (orig ?? '')) e[k] = v; else delete e[k]; };
+  const base = places.base.find(b => b.id === p.id) || {};
+  set('name', $('plName').value.trim(), base.name);
+  set('name_ru', $('plNameRu').value.trim(), base.name_ru);
+  set('kind', $('plKind').value, base.kind);
+  set('desc_ru', $('plDesc').value, base.desc_ru);
+  set('notes', $('plNotes').value, base.notes);
+  if ($('plKnown').checked) e.known = true; else delete e.known;
+  if ($('plHidden').checked) e.hiddenLabel = true; else delete e.hiddenLabel;
+  if (e.name) e.renamed = true; else delete e.renamed;
+  if (Object.keys(e).length) S.placeEdits[p.id] = e; else delete S.placeEdits[p.id];
+  commit();
+}
+$('placeDialog').addEventListener('close', () => {
+  if ($('placeDialog').returnValue === 'save') { savePlaceEdits(); toast('Сохранено'); renderEnc(); }
+});
 
 function renderWpList() {
   const el = $('wpList');
@@ -633,7 +727,7 @@ setInterval(renderPlayerStatus, 5000);
 const NUMPAD = { Numpad8: 0, Numpad9: 45, Numpad6: 90, Numpad3: 135, Numpad2: 180, Numpad1: 225, Numpad4: 270, Numpad7: 315 };
 const HOTKEYS = { KeyV: 'pan', KeyD: 'aim', KeyG: 'goto', KeyM: 'move', KeyW: 'waypoint', KeyR: 'reveal', KeyH: 'hide', KeyL: 'ruler', KeyP: 'ping' };
 window.addEventListener('keydown', e => {
-  if (isTyping(e) || dlg.open) return;
+  if (isTyping(e) || dlg.open || $('placeDialog').open) return;
   if (e.code in NUMPAD) {
     e.preventDefault();
     setBearing(NUMPAD[e.code]);

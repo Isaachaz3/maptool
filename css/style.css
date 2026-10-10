@@ -119,3 +119,23 @@ body.player { background: #11131a; }
 select { font: inherit; color: var(--text); background: #12151b; border: 1px solid var(--line); border-radius: 6px;
   padding: 5px; width: 100%; margin-top: 3px; }
 .mixrow { display: flex; justify-content: space-between; font-size: 12.5px; color: var(--muted); margin-top: 2px; }
+
+/* энциклопедия */
+#encSearch { width: 100%; margin-top: 2px; font: inherit; color: var(--text); background: #12151b; border: 1px solid var(--line);
+  border-radius: 6px; padding: 6px 8px; }
+#encResults { max-height: 260px; overflow-y: auto; margin-top: 6px; }
+#encResults .pl { display: flex; gap: 8px; align-items: baseline; padding: 4px 6px; border-radius: 6px; cursor: pointer; }
+#encResults .pl:hover { background: var(--panel-2); }
+#encResults .pl b { font-weight: 600; }
+#encResults .pl small { color: var(--muted); margin-left: auto; white-space: nowrap; }
+dialog.place { width: min(460px, calc(100vw - 32px)); }
+dialog.place .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+dialog.place select { width: 100%; }
+.pkind { font: 600 11px system-ui; letter-spacing: .12em; text-transform: uppercase; color: var(--accent); opacity: .85; }
+/* карточка места на экране игроков */
+#placeCard { position: fixed; left: 50%; bottom: 36px; transform: translateX(-50%); z-index: 8; width: min(640px, 80vw);
+  background: linear-gradient(#2a2318f2, #1d1810f2); border: 2px solid #8a6a33; border-radius: 10px; padding: 16px 24px 18px;
+  box-shadow: 0 10px 40px rgba(0,0,0,.6), inset 0 0 0 1px #3d3120; color: #efe4cb; transition: opacity .5s, transform .5s; }
+#placeCard.hidden { opacity: 0; transform: translateX(-50%) translateY(30px); pointer-events: none; }
+#placeCard h3 { margin: 2px 0 8px; font: 700 30px "Alegreya SC", Georgia, serif; color: #f4e6c2; letter-spacing: .04em; }
+#placeCard p { margin: 0; font: 18px/1.45 "Alegreya", Georgia, serif; color: #e2d6bb; white-space: pre-wrap; }
