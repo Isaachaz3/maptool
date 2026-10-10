@@ -5,7 +5,9 @@ import {
   loadState, saveState, loadFogData, saveFogData, loadView, saveView, clearAll, channel,
   stepPoint, bearingTo, distKm, rumb, fmtKm, uid, defaultState,
 } from './state.js';
-import { trailLayer, waypointLayer, partyLayer, pingLayer, drawRuler, scaleBarLayer } from './layers.js';
+import { trailLayer, waypointLayer, partyLayer, pingLayer, drawRuler, scaleBarLayer, settlementLayer } from './layers.js';
+import { MapRenderer } from './gl.js';
+import { renderSettings } from './state.js';
 
 const $ = id => document.getElementById(id);
 const ICONS = ['★', '🏰', '🏘️', '⛺', '⚔️', '💀', '🐉', '🗝️', '💰', '❓', '❗', '⛪', '🌲', '⛰️', '🕳️', '⚓', '🔥', '👁️'];
@@ -14,8 +16,26 @@ const info = await loadInfo();
 let S = loadState();
 const viewer = new Viewer($('map'), info);
 const fog = new Fog(info.width, info.height);
+window.mapViewer = viewer; // для отладки из консоли
 const bc = channel();
 const pings = pingLayer();
+startRenderer();
+function startRenderer() {
+  try {
+    viewer.renderer = new MapRenderer($('gl'), viewer, fog, { getSettings: () => renderSettings(S, false) });
+    if (viewer.renderer.software) {
+      setTimeout(() => toast('Браузер рисует карту без видеокарты — будет медленно. Включите аппаратное ускорение или качество «Низкое».'), 800);
+    }
+    viewer.renderer.load().catch(e => {
+      console.error(e);
+      viewer.renderer = null;
+      setTimeout(() => toast('Разметка карты не загрузилась — показываю оригинал без эффектов'), 500);
+    });
+  } catch (e) {
+    console.warn('WebGL недоступен, обычный режим', e);
+    viewer.renderer = null;
+  }
+}
 
 let tool = 'pan';
 let preview = null;       // предпросмотр направления
@@ -276,6 +296,7 @@ function hitWaypoint(p) {
 viewer.layers.push(
   fog.layer(() => S.gmFogOpacity, () => S.fogEnabled),
   trailLayer(() => S),
+  settlementLayer(() => S, fog),
   {
     // круг обзора и предпросмотр хода
     draw(ctx, v) {
@@ -411,6 +432,34 @@ document.querySelectorAll('input[name=cam]').forEach(r => r.addEventListener('ch
   if (r.value === 'mirror') pushView();
 }));
 
+// ---------- вид карты ----------
+const SEASONS = ['Весна', 'Лето', 'Осень', 'Зима'];
+$('styleSeg').onclick = e => { const b = e.target.closest('button'); if (b) { S.mapStyle = b.dataset.style; commit(); } };
+$('seasonSeg').onclick = e => { const b = e.target.closest('button'); if (b) animateSeason(+b.dataset.season); };
+$('season').addEventListener('input', () => { S.season = +$('season').value; commit(); });
+bindCheck('clouds', 'clouds');
+bindCheck('animate', 'animate');
+bindCheck('showSettlements', 'showSettlements');
+$('quality').addEventListener('change', () => { S.quality = $('quality').value; commit(); });
+$('fogGhost').addEventListener('input', () => { S.fogGhost = +$('fogGhost').value; commit(); });
+// плавная смена сезона вперёд по кругу
+let seasonAnim = null;
+function animateSeason(target) {
+  cancelAnimationFrame(seasonAnim);
+  const from = S.season;
+  let to = target;
+  while (to < from) to += 4;
+  if (to - from < 0.001) return;
+  const t0 = performance.now(), ms = 1500 * (to - from);
+  const step = now => {
+    const k = Math.min(1, (now - t0) / ms);
+    S.season = (from + (to - from) * k) % 4;
+    commit();
+    if (k < 1) seasonAnim = requestAnimationFrame(step);
+  };
+  seasonAnim = requestAnimationFrame(step);
+}
+
 $('doStep').onclick = () => doStep();
 $('undo').onclick = undo;
 $('centerParty').onclick = () => viewer.animateTo(S.party.x, S.party.y, Math.max(viewer.scale, 0.8));
@@ -481,6 +530,15 @@ function renderPanel() {
   $('stats').innerHTML = `Ход <b>${S.turn}</b> · пройдено <b>${fmtKm(S.totalKm)}</b><br><span class="hint">≈ ${days.toFixed(1)} дн. пути нормальным темпом (24 мили/день)</span>`;
   renderCompass();
   renderWpList();
+  document.querySelectorAll('#styleSeg button').forEach(b => b.classList.toggle('active', b.dataset.style === S.mapStyle));
+  const si = Math.round(S.season) % 4;
+  document.querySelectorAll('#seasonSeg button').forEach(b => b.classList.toggle('active', +b.dataset.season === si));
+  $('seasonName').textContent = SEASONS[si];
+  if (document.activeElement !== $('season')) $('season').value = S.season;
+  for (const k of ['clouds', 'animate', 'showSettlements']) $(k).checked = S[k];
+  $('quality').value = S.quality;
+  $('fogGhost').value = S.fogGhost; $('fogGhostVal').textContent = Math.round(S.fogGhost * 100) + '%';
+  viewer.fps = renderSettings(S, false).fps;
 }
 
 function renderWpList() {

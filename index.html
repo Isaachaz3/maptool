@@ -7,6 +7,7 @@
 <link rel="stylesheet" href="css/style.css">
 </head>
 <body class="gm">
+<canvas id="gl"></canvas>
 <canvas id="map"></canvas>
 
 <div id="toolbar" class="floating">
@@ -56,6 +57,29 @@
   </section>
 
   <section>
+    <h2>Вид карты</h2>
+    <div class="seg" id="styleSeg">
+      <button data-style="painted">🎨 Рисованная</button>
+      <button data-style="original">🗺️ Оригинал</button>
+    </div>
+    <label>Сезон: <b id="seasonName"></b></label>
+    <div class="seg" id="seasonSeg">
+      <button data-season="0">🌱</button><button data-season="1">☀️</button><button data-season="2">🍂</button><button data-season="3">❄️</button>
+    </div>
+    <input type="range" id="season" min="0" max="3.99" step="0.01">
+    <label class="check"><input type="checkbox" id="clouds"> Облака и их тени</label>
+    <label class="check"><input type="checkbox" id="animate"> Анимация (облака, туман)</label>
+    <label class="check"><input type="checkbox" id="showSettlements"> Значки поселений</label>
+    <label>Качество
+      <select id="quality">
+        <option value="high">Высокое (60 к/с, чёткость экрана)</option>
+        <option value="medium">Среднее (30 к/с)</option>
+        <option value="low">Низкое (слабая видеокарта)</option>
+      </select>
+    </label>
+  </section>
+
+  <section>
     <h2>Туман войны</h2>
     <label class="check"><input type="checkbox" id="fogEnabled"> Туман включён</label>
     <label class="check"><input type="checkbox" id="autoReveal"> Открывать вокруг отряда при ходе</label>
@@ -63,6 +87,9 @@
     <label class="check"><input type="checkbox" id="showVisionToGM"> Показывать мне круг обзора</label>
     <label>Кисть ☀️/☁️, км: <span id="brushKmVal"></span>
       <input type="range" id="brushKm" min="5" max="600" step="5">
+    </label>
+    <label>Сквозь туман видна местность: <span id="fogGhostVal"></span>
+      <input type="range" id="fogGhost" min="0" max="1" step="0.05">
     </label>
     <label>Прозрачность тумана у меня: <span id="gmFogVal"></span>
       <input type="range" id="gmFogOpacity" min="0" max="0.9" step="0.05">

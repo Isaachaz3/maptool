@@ -185,3 +185,39 @@ export function scaleBarLayer(getKmPerPx, { corner = 'bl' } = {}) {
     },
   };
 }
+
+// Значки поселений, найденные разметкой (на рисованной карте; на оригинале они и так нарисованы)
+export function settlementLayer(getState, fog, { player = false } = {}) {
+  let pts = [];
+  fetch('data/settlements.json').then(r => r.json()).then(d => { pts = d; }).catch(() => {});
+  return {
+    draw(ctx, v) {
+      const S = getState();
+      if (!S.showSettlements || S.mapStyle === 'original' || !v.renderer || v.scale < 0.3) return;
+      const r = v.viewRect();
+      const k = Math.min(1, (v.scale - 0.3) / 0.3);
+      ctx.globalAlpha = k;
+      for (const p of pts) {
+        if (p.x < r.x || p.y < r.y || p.x > r.x + r.w || p.y > r.y + r.h) continue;
+        if (player && S.fogEnabled && fog.hiddenAt(p.x, p.y)) continue;
+        const [x, y] = v.toScreen(p.x, p.y);
+        const size = Math.max(2.5, Math.min(6, 3 * Math.sqrt(v.scale)));
+        if (p.type === 'city') {
+          ctx.fillStyle = '#f6efe0'; ctx.strokeStyle = '#2a1a10'; ctx.lineWidth = 2;
+          ctx.beginPath(); ctx.arc(x, y, size + 2.5, 0, 7); ctx.fill(); ctx.stroke();
+          ctx.fillStyle = '#2a1a10'; ctx.beginPath(); ctx.arc(x, y, size * 0.6, 0, 7); ctx.fill();
+        } else if (p.type === 'castle') {
+          const a = size + 0.5;
+          ctx.fillStyle = 'rgba(246,239,224,0.9)'; ctx.fillRect(x - a - 1.5, y - a - 1.5, 2 * a + 3, 2 * a + 3);
+          ctx.fillStyle = '#2a1a10'; ctx.fillRect(x - a, y - a, 2 * a, 2 * a);
+        } else {
+          ctx.fillStyle = 'rgba(246,239,224,0.9)';
+          ctx.beginPath(); ctx.arc(x, y, size * 0.75 + 1.5, 0, 7); ctx.fill();
+          ctx.fillStyle = '#2a1a10';
+          ctx.beginPath(); ctx.arc(x, y, size * 0.75, 0, 7); ctx.fill();
+        }
+      }
+      ctx.globalAlpha = 1;
+    },
+  };
+}

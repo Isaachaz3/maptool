@@ -29,6 +29,13 @@ export function defaultState() {
     showVisionToGM: true,
     showPlayerRect: true,
     playerCamera: 'follow', // free | follow | mirror
+    mapStyle: 'painted',    // painted | original
+    season: 1,              // 0 весна, 1 лето, 2 осень, 3 зима (дробные — переходы)
+    clouds: true,
+    animate: true,
+    fogGhost: 0.2,          // насколько сквозь туман видна местность
+    quality: 'medium',      // high | medium | low
+    showSettlements: true,
     waypoints: [],
   };
 }
@@ -96,3 +103,19 @@ export function fmtKm(km) {
 }
 
 export function uid() { return Math.random().toString(36).slice(2, 10); }
+
+export const QUALITY = {
+  high: { resScale: 2, fps: 60, detail: 1 },
+  medium: { resScale: 1, fps: 30, detail: 1 },
+  low: { resScale: 0.6, fps: 20, detail: 0 },
+};
+
+// Настройки WebGL-рендера из состояния кампании
+export function renderSettings(S, isPlayer) {
+  const q = QUALITY[S.quality] || QUALITY.medium;
+  return {
+    style: S.mapStyle, season: S.season, clouds: S.clouds, animate: S.animate,
+    fogOn: S.fogEnabled, fogStrength: isPlayer ? 1 : S.gmFogOpacity, fogGhost: S.fogGhost,
+    resScale: q.resScale, detail: q.detail, fps: q.fps,
+  };
+}

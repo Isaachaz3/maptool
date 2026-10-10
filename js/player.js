@@ -2,22 +2,33 @@
 import { Viewer, loadInfo } from './viewer.js';
 import { Fog } from './fog.js';
 import { loadState, loadFogData, loadView, saveView, channel, defaultState } from './state.js';
-import { trailLayer, waypointLayer, partyLayer, pingLayer, drawRuler, scaleBarLayer } from './layers.js';
+import { trailLayer, waypointLayer, partyLayer, pingLayer, drawRuler, scaleBarLayer, settlementLayer } from './layers.js';
+import { MapRenderer } from './gl.js';
+import { renderSettings } from './state.js';
 
 const $ = id => document.getElementById(id);
 const info = await loadInfo();
 let S = loadState();
 const viewer = new Viewer($('map'), info);
 const fog = new Fog(info.width, info.height);
+window.mapViewer = viewer; // для отладки из консоли
 const bc = channel();
 const pings = pingLayer();
 let ruler = null;
 let connected = false;
 
 await fog.load(loadFogData());
+try {
+  viewer.renderer = new MapRenderer($('gl'), viewer, fog, { getSettings: () => renderSettings(S, true) });
+  viewer.renderer.load().catch(e => { console.error(e); viewer.renderer = null; });
+} catch (e) {
+  console.warn('WebGL недоступен, обычный режим', e);
+}
+viewer.fps = renderSettings(S, true).fps;
 
 viewer.layers.push(
   trailLayer(() => S, () => S.showTrailToPlayers),
+  settlementLayer(() => S, fog, { player: true }),
   fog.layer(() => 1, () => S.fogEnabled),
   // метки, которые мастер сделал видимыми, показываем даже в тумане — игроки о них «слышали»
   waypointLayer(() => S.waypoints.filter(w => w.visible !== false)),
@@ -54,6 +65,7 @@ bc.onmessage = ({ data: m }) => {
   if (m.t === 'state') {
     const moved = !S || S.party.x !== m.state.party.x || S.party.y !== m.state.party.y;
     S = { ...defaultState(), ...m.state };
+    viewer.fps = renderSettings(S, true).fps;
     if (moved && S.playerCamera === 'follow') {
       const [sx, sy] = viewer.toScreen(S.party.x, S.party.y);
       // плавно двигаем, только если отряд уходит от центра

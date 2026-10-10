@@ -164,8 +164,11 @@ export class Viewer {
         Math.exp(a.from.ls + (a.to.ls - a.from.ls) * e), k >= 1);
       if (k >= 1) this.anim = null;
     }
-    if (this.dirty || this.continuous) {
+    // постоянная анимация (облака, туман) идёт с ограничением кадров, действия пользователя — сразу
+    const anim = this.continuous && now - (this.lastDraw || 0) >= 1000 / (this.fps || 30) - 2;
+    if (this.dirty || anim) {
       this.dirty = false;
+      this.lastDraw = now;
       this.draw(now);
     }
     requestAnimationFrame(this.loop);
@@ -173,24 +176,31 @@ export class Viewer {
 
   // Слой может попросить постоянную перерисовку (анимации пингов и т.п.)
   set continuous(v) { this._cont = v; }
-  get continuous() { return this._cont || this.layers.some(l => l.animating && l.animating()); }
+  get continuous() {
+    return this._cont || (this.renderer && this.renderer.animating()) || this.layers.some(l => l.animating && l.animating());
+  }
 
   draw(now) {
     this.frame++;
     const ctx = this.ctx, dpr = this.dpr, s = this.scale;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.fillStyle = SEA;
-    ctx.fillRect(0, 0, this.vw, this.vh);
-
-    ctx.setTransform(dpr * s, 0, 0, dpr * s, dpr * (this.vw / 2 - this.cx * s), dpr * (this.vh / 2 - this.cy * s));
-    ctx.imageSmoothingEnabled = true;
-    ctx.imageSmoothingQuality = 'high';
-    const rect = this.viewRect();
-    const eff = s * dpr;
-    const target = Math.max(0, Math.min(this.levels.length - 1, Math.floor(Math.log2(1 / eff))));
-    // подложка: самый грубый уровень целиком, затем уже загруженные промежуточные
-    for (let l = this.levels.length - 1; l > target; l--) this.drawLevel(ctx, l, rect, false);
-    this.drawLevel(ctx, target, rect, true);
+    if (this.renderer) {
+      // карту рисует WebGL на нижнем холсте, здесь только оверлеи
+      ctx.clearRect(0, 0, this.vw, this.vh);
+      this.renderer.render(now);
+    } else {
+      ctx.fillStyle = SEA;
+      ctx.fillRect(0, 0, this.vw, this.vh);
+      ctx.setTransform(dpr * s, 0, 0, dpr * s, dpr * (this.vw / 2 - this.cx * s), dpr * (this.vh / 2 - this.cy * s));
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'high';
+      const rect = this.viewRect();
+      const eff = s * dpr;
+      const target = Math.max(0, Math.min(this.levels.length - 1, Math.floor(Math.log2(1 / eff))));
+      // подложка: самый грубый уровень целиком, затем уже загруженные промежуточные
+      for (let l = this.levels.length - 1; l > target; l--) this.drawLevel(ctx, l, rect, false);
+      this.drawLevel(ctx, target, rect, true);
+    }
 
     for (const layer of this.layers) {
       ctx.save();

@@ -8,11 +8,14 @@ export class Fog {
     this.canvas = document.createElement('canvas');
     this.canvas.width = Math.ceil(W * k);
     this.canvas.height = Math.ceil(H * k);
-    this.ctx = this.canvas.getContext('2d');
+    this.ctx = this.canvas.getContext('2d', { willReadFrequently: false });
+    this.version = 0;
     this.fill(false);
   }
 
   fill(reveal) {
+    this.version++;
+    this.pixelsStale = true;
     const c = this.ctx;
     c.globalCompositeOperation = 'source-over';
     c.clearRect(0, 0, this.canvas.width, this.canvas.height);
@@ -51,9 +54,24 @@ export class Fog {
   }
 
   apply(op) {
+    this.version++;
+    this.pixelsStale = true;
     if (op.k === 'all') this.fill(op.reveal);
     else if (op.k === 'circle') this.stamp(op.x, op.y, op.r, op.reveal);
     else if (op.k === 'line') this.line(op.x0, op.y0, op.x1, op.y1, op.r, op.reveal);
+  }
+
+  // Скрыта ли точка туманом (для значков поверх WebGL). Читаем маску не чаще раза в 300 мс.
+  hiddenAt(x, y) {
+    const now = performance.now();
+    if (!this.pixels || (this.pixelsStale && now - this.pixelsAt > 300)) {
+      this.pixels = this.ctx.getImageData(0, 0, this.canvas.width, this.canvas.height).data;
+      this.pixelsAt = now;
+      this.pixelsStale = false;
+    }
+    const X = Math.floor(x * this.k), Y = Math.floor(y * this.k);
+    if (X < 0 || Y < 0 || X >= this.canvas.width || Y >= this.canvas.height) return true;
+    return this.pixels[(Y * this.canvas.width + X) * 4 + 3] > 140;
   }
 
   toDataURL() { return this.canvas.toDataURL('image/png'); }
@@ -66,6 +84,8 @@ export class Fog {
         this.ctx.globalCompositeOperation = 'source-over';
         this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
         this.ctx.drawImage(img, 0, 0, this.canvas.width, this.canvas.height);
+        this.version++;
+        this.pixelsStale = true;
         res(true);
       };
       img.onerror = () => res(false);
@@ -78,7 +98,7 @@ export class Fog {
     return {
       space: 'map',
       draw: (ctx, v) => {
-        if (!isEnabled()) return;
+        if (v.renderer || !isEnabled()) return;
         const a = getOpacity();
         if (a <= 0) return;
         ctx.globalAlpha = a;
