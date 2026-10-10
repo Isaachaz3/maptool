@@ -1,11 +1,11 @@
 // Экран игроков: только то, что открыл мастер.
-import { Viewer, loadInfo } from './viewer.js';
-import { Fog } from './fog.js';
-import { loadState, loadFogData, loadView, saveView, channel, defaultState } from './state.js';
-import { trailLayer, waypointLayer, partyLayer, pingLayer, drawRuler, scaleBarLayer, settlementLayer } from './layers.js';
-import { MapRenderer } from './gl.js';
-import { Places, placeLabelLayer } from './places.js';
-import { renderSettings } from './state.js';
+import { Viewer, loadInfo } from './viewer.js?v=3cf7e3b5';
+import { Fog } from './fog.js?v=3cf7e3b5';
+import { loadState, loadFogData, loadView, saveView, channel, defaultState } from './state.js?v=3cf7e3b5';
+import { trailLayer, waypointLayer, partyLayer, pingLayer, drawRuler, scaleBarLayer, settlementLayer } from './layers.js?v=3cf7e3b5';
+import { MapRenderer } from './gl.js?v=3cf7e3b5';
+import { Places, placeLabelLayer } from './places.js?v=3cf7e3b5';
+import { renderSettings } from './state.js?v=3cf7e3b5';
 
 const $ = id => document.getElementById(id);
 const info = await loadInfo();
@@ -147,3 +147,5 @@ function showPlaceCard(p) {
 }
 window.addEventListener('keydown', e => { if (e.code === 'Escape') $('placeCard').classList.add('hidden'); });
 $('placeCard').addEventListener('click', () => $('placeCard').classList.add('hidden'));
+
+window.__appStarted = true;

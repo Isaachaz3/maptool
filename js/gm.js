@@ -1,14 +1,14 @@
 // Экран мастера.
-import { Viewer, loadInfo, isTyping } from './viewer.js';
-import { Fog } from './fog.js';
+import { Viewer, loadInfo, isTyping } from './viewer.js?v=3cf7e3b5';
+import { Fog } from './fog.js?v=3cf7e3b5';
 import {
   loadState, saveState, loadFogData, saveFogData, loadView, saveView, clearAll, channel,
   stepPoint, bearingTo, distKm, rumb, fmtKm, uid, defaultState,
-} from './state.js';
-import { trailLayer, waypointLayer, partyLayer, pingLayer, drawRuler, scaleBarLayer, settlementLayer } from './layers.js';
-import { MapRenderer } from './gl.js';
-import { Places, placeLabelLayer, KIND_NAMES, wikiSummary, wikiUrl } from './places.js';
-import { renderSettings } from './state.js';
+} from './state.js?v=3cf7e3b5';
+import { trailLayer, waypointLayer, partyLayer, pingLayer, drawRuler, scaleBarLayer, settlementLayer } from './layers.js?v=3cf7e3b5';
+import { MapRenderer } from './gl.js?v=3cf7e3b5';
+import { Places, placeLabelLayer, KIND_NAMES, wikiSummary, wikiUrl } from './places.js?v=3cf7e3b5';
+import { renderSettings } from './state.js?v=3cf7e3b5';
 
 const $ = id => document.getElementById(id);
 const ICONS = ['★', '🏰', '🏘️', '⛺', '⚔️', '💀', '🐉', '🗝️', '💰', '❓', '❗', '⛪', '🌲', '⛰️', '🕳️', '⚓', '🔥', '👁️'];
@@ -788,3 +788,5 @@ renderPanel();
 renderPlayerStatus();
 sendFull();
 viewer.invalidate();
+
+window.__appStarted = true;
