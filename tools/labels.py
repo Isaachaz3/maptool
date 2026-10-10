@@ -28,8 +28,8 @@ def road_mask(gray):
     return np.isin(lab, ids)
 
 
-def text_mask(img, debug=False):
-    """img — RGB uint8. Возвращает (alpha 0..255, маска групп-слов)."""
+def text_mask(img, debug=False, with_words=False, loose=False):
+    """img — RGB uint8. Возвращает (alpha 0..255, маска групп-слов[, список слов с геометрией])."""
     gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
     # тонкие тёмные штрихи на светлом фоне (black-hat по яркости: голубые реки слишком светлые и не попадают)
     k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (11, 11))
@@ -61,34 +61,47 @@ def text_mask(img, debug=False):
         (_, _), (rw, rh), _ = cv2.minAreaRect(cv2.findNonZero((lab[y:y + h, x:x + w] == i).astype(np.uint8)))
         if min(rw, rh) >= 5.5:
             big[i] = True
-    strokes[~(keepfat | big[lab])] = 0
+    if not loose:  # в мягком режиме (для газеттира) тонкий курсив не выбрасываем
+        strokes[~(keepfat | big[lab])] = 0
     del closed, fat, lab, keepfat
     # буквы → слова: склеиваем только близкие штрихи (зазор между буквами 1–3 px, у пунктира больше)
     words = cv2.dilate(strokes, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5)))
     n, lab, st, _ = cv2.connectedComponentsWithStats(words, connectivity=8)
     keep = np.zeros(n, bool)
+    found = []
     for i in range(1, n):
         x, y, w, h, a = st[i]
         if a < 60 or w > 1500 or h > 1500:
             continue
         sub = (lab[y:y + h, x:x + w] == i).astype(np.uint8)
         pts = cv2.findNonZero(sub)
-        (_, _), (rw, rh), _ = cv2.minAreaRect(pts)
+        (rcx, rcy), (rw, rh), rang = cv2.minAreaRect(pts)
         t, l = min(rw, rh), max(rw, rh)
-        if t < 9.5 or t > 70 or l < 10:
+        if t < (7 if loose else 9.5) or t > 70 or l < 10:
             continue
         ink = strokes[y:y + h, x:x + w][sub > 0].mean()
-        if not (0.1 <= ink <= 0.7):
+        if not ((0.07 if loose else 0.1) <= ink <= 0.7):
             continue
         # слова плотно заполняют свой повёрнутый прямоугольник, клочья штриховки — нет
-        if a / max(1.0, rw * rh) < 0.35:
+        if a / max(1.0, rw * rh) < (0.3 if loose else 0.35):
             continue
         keep[i] = True
+        if with_words:
+            # угол вдоль длинной стороны, приведённый к (-90, 90]: так читается текст
+            ang = rang if rw >= rh else rang + 90
+            while ang > 90:
+                ang -= 180
+            while ang <= -90:
+                ang += 180
+            found.append({'cx': float(x + rcx), 'cy': float(y + rcy), 'len': float(l), 'h': float(t),
+                          'angle': float(ang), 'bbox': [int(x), int(y), int(w), int(h)]})
     groups = keep[lab]
     # мягкая альфа: насколько пиксель темнее локального фона
     bg = cv2.morphologyEx(gray, cv2.MORPH_CLOSE, k).astype(np.float32)
     dark = np.clip((bh.astype(np.float32) - 20) / 90.0, 0, 1)
     alpha = (dark * cv2.dilate(groups.astype(np.uint8), np.ones((3, 3), np.uint8))).astype(np.float32)
+    if with_words:
+        return (alpha * 255).astype(np.uint8), groups, found
     return (alpha * 255).astype(np.uint8), groups
 
 
