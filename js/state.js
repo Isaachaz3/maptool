@@ -29,7 +29,8 @@ export function defaultState() {
     showVisionToGM: true,
     showPlayerRect: true,
     playerCamera: 'follow', // free | follow | mirror
-    mapStyle: 'painted',    // painted | original
+    styleMix: 0,            // 0 — рисованная, 1 — оригинал, между — плавное смешение
+    showLabels: true,
     season: 1,              // 0 весна, 1 лето, 2 осень, 3 зима (дробные — переходы)
     clouds: true,
     animate: true,
@@ -114,7 +115,7 @@ export const QUALITY = {
 export function renderSettings(S, isPlayer) {
   const q = QUALITY[S.quality] || QUALITY.medium;
   return {
-    style: S.mapStyle, season: S.season, clouds: S.clouds, animate: S.animate,
+    styleMix: S.styleMix, labels: S.showLabels, season: S.season, clouds: S.clouds, animate: S.animate,
     fogOn: S.fogEnabled, fogStrength: isPlayer ? 1 : S.gmFogOpacity, fogGhost: S.fogGhost,
     resScale: q.resScale, detail: q.detail, fps: q.fps,
   };

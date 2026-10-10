@@ -2,12 +2,18 @@
 
 Использование:  python3 tools/settlements.py assets/faerun-full.jpg data/settlements.json
 Типы: city — кольцо с точкой, castle — чёрный квадрат, town — чёрная точка.
+Значок принимается, только если рядом есть подпись, он не внутри слова и не на краю провала
+(иначе находятся буквы «O», развилки дорог и точки вдоль границы Подземья).
 """
 import json
+import os
 import sys
 
 import cv2
 import numpy as np
+
+sys.path.insert(0, os.path.dirname(__file__))
+from labels import text_mask  # noqa: E402
 
 
 def disk(size, r, val=0, bg=255):
@@ -71,6 +77,39 @@ def main(src, out):
         kind = 'castle' if fill > 0.86 and w >= 7 else 'town'
         found.append((PRIORITY[kind], -fill, kind, int(round(cent[i][0])), int(round(cent[i][1]))))
     print('blobs', n, flush=True)
+    # подписи рядом и не внутри слова
+    img = cv2.imread(src, cv2.IMREAD_COLOR)[:, :, ::-1].copy()
+    _, words = text_mask(img)
+    words = words.astype(np.uint8)
+    near = cv2.dilate(words, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (61, 61)))
+    # провалы из разметки местности (data/t2.png, зелёный канал, 1/4 разрешения)
+    t2 = cv2.imread(os.path.join(os.path.dirname(out), 't2.png'))
+    chasm = None
+    if t2 is not None:
+        g = t2[:, :, 1].astype(np.float32)  # BGR → зелёный
+        chasm = cv2.resize(g, (gray.shape[1], gray.shape[0]), interpolation=cv2.INTER_LINEAR)
+    kept = []
+    for f in found:
+        _, _, kind, x, y = f
+        if not near[y, x]:
+            continue
+        # «внутри слова» — если текст окружает значок с большинства сторон (у настоящего значка подпись сбоку)
+        hits = 0
+        for k in range(8):
+            a = k * np.pi / 4
+            for rr in (8, 12):
+                xx, yy = int(x + rr * np.cos(a)), int(y + rr * np.sin(a))
+                if 0 <= yy < words.shape[0] and 0 <= xx < words.shape[1] and words[yy, xx]:
+                    hits += 1
+                    break
+        if hits >= 5:
+            continue
+        # SDF провала: 0.5 = граница, ±24 px → 1 px ≈ 0.0104; отсекаем ближе 20 px к провалу
+        if chasm is not None and chasm[y, x] > 255 * (0.5 - 20 / 48):
+            continue
+        kept.append(f)
+    print('после фильтра', len(kept), 'из', len(found), flush=True)
+    found = kept
     found.sort()
     pts = []
     taken = np.zeros((gray.shape[0] // 8 + 2, gray.shape[1] // 8 + 2), bool)

@@ -434,12 +434,13 @@ document.querySelectorAll('input[name=cam]').forEach(r => r.addEventListener('ch
 
 // ---------- вид карты ----------
 const SEASONS = ['Весна', 'Лето', 'Осень', 'Зима'];
-$('styleSeg').onclick = e => { const b = e.target.closest('button'); if (b) { S.mapStyle = b.dataset.style; commit(); } };
+$('styleMix').addEventListener('input', () => { S.styleMix = +$('styleMix').value; commit(); });
 $('seasonSeg').onclick = e => { const b = e.target.closest('button'); if (b) animateSeason(+b.dataset.season); };
 $('season').addEventListener('input', () => { S.season = +$('season').value; commit(); });
 bindCheck('clouds', 'clouds');
 bindCheck('animate', 'animate');
 bindCheck('showSettlements', 'showSettlements');
+bindCheck('showLabels', 'showLabels');
 $('quality').addEventListener('change', () => { S.quality = $('quality').value; commit(); });
 $('fogGhost').addEventListener('input', () => { S.fogGhost = +$('fogGhost').value; commit(); });
 // плавная смена сезона вперёд по кругу
@@ -530,12 +531,12 @@ function renderPanel() {
   $('stats').innerHTML = `Ход <b>${S.turn}</b> · пройдено <b>${fmtKm(S.totalKm)}</b><br><span class="hint">≈ ${days.toFixed(1)} дн. пути нормальным темпом (24 мили/день)</span>`;
   renderCompass();
   renderWpList();
-  document.querySelectorAll('#styleSeg button').forEach(b => b.classList.toggle('active', b.dataset.style === S.mapStyle));
+  if (document.activeElement !== $('styleMix')) $('styleMix').value = S.styleMix;
   const si = Math.round(S.season) % 4;
   document.querySelectorAll('#seasonSeg button').forEach(b => b.classList.toggle('active', +b.dataset.season === si));
   $('seasonName').textContent = SEASONS[si];
   if (document.activeElement !== $('season')) $('season').value = S.season;
-  for (const k of ['clouds', 'animate', 'showSettlements']) $(k).checked = S[k];
+  for (const k of ['clouds', 'animate', 'showSettlements', 'showLabels']) $(k).checked = S[k];
   $('quality').value = S.quality;
   $('fogGhost').value = S.fogGhost; $('fogGhostVal').textContent = Math.round(S.fogGhost * 100) + '%';
   viewer.fps = renderSettings(S, false).fps;

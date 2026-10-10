@@ -186,38 +186,76 @@ export function scaleBarLayer(getKmPerPx, { corner = 'bl' } = {}) {
   };
 }
 
-// Значки поселений, найденные разметкой (на рисованной карте; на оригинале они и так нарисованы)
+// Значки поселений, найденные разметкой: маленькие рисованные городки в духе BB
 export function settlementLayer(getState, fog, { player = false } = {}) {
   let pts = [];
   fetch('data/settlements.json').then(r => r.json()).then(d => { pts = d; }).catch(() => {});
   return {
     draw(ctx, v) {
       const S = getState();
-      if (!S.showSettlements || S.mapStyle === 'original' || !v.renderer || v.scale < 0.3) return;
+      if (!S.showSettlements || !v.renderer || v.scale < 0.25) return;
+      const a = Math.min(1, (v.scale - 0.25) / 0.25) * Math.max(0, 1 - S.styleMix * 1.6);
+      if (a <= 0.02) return;
       const r = v.viewRect();
-      const k = Math.min(1, (v.scale - 0.3) / 0.3);
-      ctx.globalAlpha = k;
+      ctx.globalAlpha = a;
+      const k = Math.max(0.55, Math.min(1.6, Math.sqrt(v.scale)));
       for (const p of pts) {
-        if (p.x < r.x || p.y < r.y || p.x > r.x + r.w || p.y > r.y + r.h) continue;
+        if (p.x < r.x - 20 || p.y < r.y - 20 || p.x > r.x + r.w + 20 || p.y > r.y + r.h + 20) continue;
         if (player && S.fogEnabled && fog.hiddenAt(p.x, p.y)) continue;
         const [x, y] = v.toScreen(p.x, p.y);
-        const size = Math.max(2.5, Math.min(6, 3 * Math.sqrt(v.scale)));
-        if (p.type === 'city') {
-          ctx.fillStyle = '#f6efe0'; ctx.strokeStyle = '#2a1a10'; ctx.lineWidth = 2;
-          ctx.beginPath(); ctx.arc(x, y, size + 2.5, 0, 7); ctx.fill(); ctx.stroke();
-          ctx.fillStyle = '#2a1a10'; ctx.beginPath(); ctx.arc(x, y, size * 0.6, 0, 7); ctx.fill();
-        } else if (p.type === 'castle') {
-          const a = size + 0.5;
-          ctx.fillStyle = 'rgba(246,239,224,0.9)'; ctx.fillRect(x - a - 1.5, y - a - 1.5, 2 * a + 3, 2 * a + 3);
-          ctx.fillStyle = '#2a1a10'; ctx.fillRect(x - a, y - a, 2 * a, 2 * a);
-        } else {
-          ctx.fillStyle = 'rgba(246,239,224,0.9)';
-          ctx.beginPath(); ctx.arc(x, y, size * 0.75 + 1.5, 0, 7); ctx.fill();
-          ctx.fillStyle = '#2a1a10';
-          ctx.beginPath(); ctx.arc(x, y, size * 0.75, 0, 7); ctx.fill();
-        }
+        drawTown(ctx, x, y, k, p.type, (p.x * 7 + p.y * 13) | 0);
       }
       ctx.globalAlpha = 1;
     },
   };
+}
+
+const ROOFS = ['#3d4a5c', '#5a3326', '#4a4036'];
+function house(ctx, x, y, w, h, roof) {
+  ctx.fillStyle = '#8a7356';
+  ctx.fillRect(x - w / 2, y - h * 0.45, w, h * 0.55);
+  ctx.fillStyle = roof;
+  ctx.beginPath();
+  ctx.moveTo(x - w * 0.62, y - h * 0.4); ctx.lineTo(x, y - h); ctx.lineTo(x + w * 0.62, y - h * 0.4);
+  ctx.closePath(); ctx.fill();
+  ctx.strokeStyle = 'rgba(20,14,8,0.8)'; ctx.lineWidth = 1;
+  ctx.stroke();
+  ctx.strokeRect(x - w / 2, y - h * 0.45, w, h * 0.55);
+}
+
+function drawTown(ctx, x, y, k, type, seed) {
+  ctx.save();
+  // тень
+  ctx.fillStyle = 'rgba(0,0,0,0.35)';
+  ctx.beginPath(); ctx.ellipse(x + 2 * k, y + 2 * k, 9 * k, 4 * k, 0, 0, 7); ctx.fill();
+  const roof = ROOFS[Math.abs(seed) % 3];
+  if (type === 'city') {
+    // стена-кольцо с башнями и домами внутри
+    ctx.fillStyle = '#6f5d48'; ctx.strokeStyle = 'rgba(20,14,8,0.9)'; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.ellipse(x, y - 2 * k, 11 * k, 7 * k, 0, 0, 7); ctx.fill(); ctx.stroke();
+    house(ctx, x - 4 * k, y - 2 * k, 6 * k, 8 * k, roof);
+    house(ctx, x + 4 * k, y - 3 * k, 6 * k, 9 * k, ROOFS[(Math.abs(seed) + 1) % 3]);
+    house(ctx, x, y + 1 * k, 5 * k, 7 * k, roof);
+    for (const dx of [-11, 11]) {
+      ctx.fillStyle = '#7d6a52';
+      ctx.fillRect(x + dx * k - 2 * k, y - 8 * k, 4 * k, 8 * k);
+      ctx.strokeRect(x + dx * k - 2 * k, y - 8 * k, 4 * k, 8 * k);
+      ctx.fillStyle = roof;
+      ctx.beginPath(); ctx.moveTo(x + dx * k - 3 * k, y - 8 * k); ctx.lineTo(x + dx * k, y - 12 * k); ctx.lineTo(x + dx * k + 3 * k, y - 8 * k); ctx.fill();
+    }
+  } else if (type === 'castle') {
+    ctx.fillStyle = '#7d6a52'; ctx.strokeStyle = 'rgba(20,14,8,0.9)'; ctx.lineWidth = 1.2;
+    ctx.fillRect(x - 6 * k, y - 7 * k, 12 * k, 8 * k); ctx.strokeRect(x - 6 * k, y - 7 * k, 12 * k, 8 * k);
+    for (const dx of [-6, 0, 6]) {
+      const hh = dx === 0 ? 14 : 10;
+      ctx.fillStyle = '#8a775d';
+      ctx.fillRect(x + dx * k - 2 * k, y - hh * k, 4 * k, hh * k); ctx.strokeRect(x + dx * k - 2 * k, y - hh * k, 4 * k, hh * k);
+      ctx.fillStyle = roof;
+      ctx.beginPath(); ctx.moveTo(x + dx * k - 3 * k, y - hh * k); ctx.lineTo(x + dx * k, y - (hh + 4) * k); ctx.lineTo(x + dx * k + 3 * k, y - hh * k); ctx.fill();
+    }
+  } else {
+    house(ctx, x - 3 * k, y, 6 * k, 8 * k, roof);
+    house(ctx, x + 3.5 * k, y + 1.5 * k, 5 * k, 6.5 * k, ROOFS[(Math.abs(seed) + 2) % 3]);
+  }
+  ctx.restore();
 }

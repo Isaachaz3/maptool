@@ -25,8 +25,22 @@ export class Fog {
     }
   }
 
-  // Мягкая круглая кисть. x, y, r — в пикселях карты.
+  // Рваная кисть: центральное пятно и несколько «лепестков» вокруг, раскладка зависит от места —
+  // поэтому край открытой области получается неровным, но одинаковым у мастера и игроков.
   stamp(x, y, r, reveal) {
+    let seed = (Math.round(x) * 73856093) ^ (Math.round(y) * 19349663);
+    const rnd = () => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed / 0x7fffffff; };
+    this.blob(x, y, r * 0.72, reveal);
+    const n = 6;
+    for (let i = 0; i < n; i++) {
+      const a = (i / n + rnd() * 0.12) * Math.PI * 2;
+      const d = r * (0.35 + rnd() * 0.3);
+      this.blob(x + Math.cos(a) * d, y + Math.sin(a) * d, r * (0.28 + rnd() * 0.22), reveal);
+    }
+  }
+
+  // Мягкий круг. x, y, r — в пикселях карты.
+  blob(x, y, r, reveal) {
     const c = this.ctx, k = this.k;
     const X = x * k, Y = y * k, R = Math.max(1.5, r * k);
     const g = c.createRadialGradient(X, Y, R * 0.6, X, Y, R);

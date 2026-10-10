@@ -58,10 +58,8 @@
 
   <section>
     <h2>Вид карты</h2>
-    <div class="seg" id="styleSeg">
-      <button data-style="painted">🎨 Рисованная</button>
-      <button data-style="original">🗺️ Оригинал</button>
-    </div>
+    <div class="mixrow"><span>🎨 Рисованная</span><span>Оригинал 🗺️</span></div>
+    <input type="range" id="styleMix" min="0" max="1" step="0.01">
     <label>Сезон: <b id="seasonName"></b></label>
     <div class="seg" id="seasonSeg">
       <button data-season="0">🌱</button><button data-season="1">☀️</button><button data-season="2">🍂</button><button data-season="3">❄️</button>
@@ -70,6 +68,7 @@
     <label class="check"><input type="checkbox" id="clouds"> Облака и их тени</label>
     <label class="check"><input type="checkbox" id="animate"> Анимация (облака, туман)</label>
     <label class="check"><input type="checkbox" id="showSettlements"> Значки поселений</label>
+    <label class="check"><input type="checkbox" id="showLabels"> Названия (при приближении)</label>
     <label>Качество
       <select id="quality">
         <option value="high">Высокое (60 к/с, чёткость экрана)</option>
