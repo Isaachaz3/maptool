@@ -1,0 +1,98 @@
+// Состояние кампании, сохранение в localStorage и связь между окнами.
+
+const KEY = 'faerun-walker:state:v1';
+const FOG_KEY = 'faerun-walker:fog:v1';
+const VIEW_KEY = 'faerun-walker:view:';
+
+// Шкала на карте: 360 миль = 453 px исходного изображения.
+export const DEFAULT_KM_PER_PX = (360 * 1.609344) / 453;
+
+export function defaultState() {
+  const start = { x: 3366, y: 1153 }; // Врата Балдура
+  return {
+    version: 1,
+    party: { ...start },
+    partyName: 'Отряд',
+    trail: [{ x: start.x, y: start.y, km: 0 }],
+    turn: 0,
+    totalKm: 0,
+    bearing: 0,
+    stepKm: 6,
+    steps: 1,
+    kmPerPx: DEFAULT_KM_PER_PX,
+    visionKm: 40,
+    autoReveal: true,
+    brushKm: 40,
+    fogEnabled: true,
+    gmFogOpacity: 0.45,
+    showTrailToPlayers: true,
+    showVisionToGM: true,
+    showPlayerRect: true,
+    playerCamera: 'follow', // free | follow | mirror
+    waypoints: [],
+  };
+}
+
+export function loadState() {
+  try {
+    const raw = localStorage.getItem(KEY);
+    if (raw) return { ...defaultState(), ...JSON.parse(raw) };
+  } catch (e) { console.warn('state load failed', e); }
+  return defaultState();
+}
+
+export function saveState(s) {
+  try { localStorage.setItem(KEY, JSON.stringify(s)); return true; }
+  catch (e) { console.warn('state save failed', e); return false; }
+}
+
+export function loadFogData() {
+  try { return localStorage.getItem(FOG_KEY); } catch { return null; }
+}
+
+export function saveFogData(url) {
+  try { localStorage.setItem(FOG_KEY, url); return true; }
+  catch (e) { console.warn('fog save failed', e); return false; }
+}
+
+export function loadView(who) {
+  try { return JSON.parse(localStorage.getItem(VIEW_KEY + who)); } catch { return null; }
+}
+
+export function saveView(who, v) {
+  try { localStorage.setItem(VIEW_KEY + who, JSON.stringify(v)); } catch { /* не критично */ }
+}
+
+export function clearAll() {
+  for (const k of [KEY, FOG_KEY, VIEW_KEY + 'gm', VIEW_KEY + 'player']) localStorage.removeItem(k);
+}
+
+export function channel() {
+  return new BroadcastChannel('faerun-walker');
+}
+
+// ---------- геометрия ----------
+// Азимут: 0° — север (вверх), 90° — восток.
+export function stepPoint(x, y, bearing, km, kmPerPx) {
+  const d = km / kmPerPx, a = bearing * Math.PI / 180;
+  return { x: x + Math.sin(a) * d, y: y - Math.cos(a) * d };
+}
+
+export function bearingTo(x0, y0, x1, y1) {
+  const b = Math.atan2(x1 - x0, -(y1 - y0)) * 180 / Math.PI;
+  return (b + 360) % 360;
+}
+
+export function distKm(x0, y0, x1, y1, kmPerPx) {
+  return Math.hypot(x1 - x0, y1 - y0) * kmPerPx;
+}
+
+const RUMBS = ['С', 'ССВ', 'СВ', 'ВСВ', 'В', 'ВЮВ', 'ЮВ', 'ЮЮВ', 'Ю', 'ЮЮЗ', 'ЮЗ', 'ЗЮЗ', 'З', 'ЗСЗ', 'СЗ', 'ССЗ'];
+export function rumb(b) { return RUMBS[Math.round(((b % 360) + 360) % 360 / 22.5) % 16]; }
+
+export function fmtKm(km) {
+  if (km >= 100) return `${Math.round(km)} км`;
+  return `${km.toFixed(1).replace(/\.0$/, '')} км`;
+}
+
+export function uid() { return Math.random().toString(36).slice(2, 10); }
