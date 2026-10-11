@@ -1,15 +1,15 @@
 // Экран мастера.
-import { Viewer, loadInfo, isTyping } from './viewer.js?v=e0729c15';
-import { Fog } from './fog.js?v=e0729c15';
+import { Viewer, loadInfo, isTyping } from './viewer.js?v=61c03b0e';
+import { Fog } from './fog.js?v=61c03b0e';
 import {
   loadState, saveState, loadFogData, saveFogData, loadView, saveView, clearAll, channel,
   stepPoint, bearingTo, distKm, rumb, fmtKm, uid, defaultState,
-} from './state.js?v=e0729c15';
-import { trailLayer, waypointLayer, partyLayer, pingLayer, drawRuler, scaleBarLayer, settlementLayer } from './layers.js?v=e0729c15';
-import { EnemySim, Terrain, enemyLayer, defaultEnemyConfig } from './enemies.js?v=e0729c15';
-import { MapRenderer } from './gl.js?v=e0729c15';
-import { Places, placeLabelLayer, KIND_NAMES, wikiSummary, wikiUrl } from './places.js?v=e0729c15';
-import { renderSettings } from './state.js?v=e0729c15';
+} from './state.js?v=61c03b0e';
+import { trailLayer, waypointLayer, partyLayer, pingLayer, drawRuler, scaleBarLayer, settlementLayer } from './layers.js?v=61c03b0e';
+import { EnemySim, Terrain, enemyLayer, defaultEnemyConfig } from './enemies.js?v=61c03b0e';
+import { MapRenderer } from './gl.js?v=61c03b0e';
+import { Places, placeLabelLayer, KIND_NAMES, wikiSummary, wikiUrl } from './places.js?v=61c03b0e';
+import { renderSettings } from './state.js?v=61c03b0e';
 
 const $ = id => document.getElementById(id);
 const ICONS = ['★', '🏰', '🏘️', '⛺', '⚔️', '💀', '🐉', '🗝️', '💰', '❓', '❗', '⛪', '🌲', '⛰️', '🕳️', '⚓', '🔥', '👁️'];

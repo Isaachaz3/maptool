@@ -75,8 +75,9 @@ out vec2 vMap;
 flat out vec4 vSeg;
 flat out vec2 vRR;
 void main() {
-  vec2 lo = min(aSeg.xy, aSeg.zw) - aRR.x - 2.0 / uView.z;
-  vec2 hi = max(aSeg.xy, aSeg.zw) + aRR.x + 2.0 / uView.z;
+  // запас под «лепестки» рваного края (до половины радиуса наружу)
+  vec2 lo = min(aSeg.xy, aSeg.zw) - aRR.x * 1.5 - 2.0 / uView.z;
+  vec2 hi = max(aSeg.xy, aSeg.zw) + aRR.x * 1.5 + 2.0 / uView.z;
   vec2 m = mix(lo, hi, aPos);
   vec2 s = (m - uView.xy) * uView.z + uRes * 0.5;
   gl_Position = vec4(s / uRes * 2.0 - 1.0, 0.0, 1.0);
@@ -91,14 +92,25 @@ flat in vec4 vSeg;
 flat in vec2 vRR;
 uniform float uScale;
 out vec4 o;
+float h21(vec2 p) { p = fract(p * vec2(123.34, 456.21)); p += dot(p, p + 45.32); return fract(p.x * p.y); }
+float vn(vec2 p) {
+  vec2 i = floor(p), f = fract(p);
+  vec2 u = f * f * (3.0 - 2.0 * f);
+  return mix(mix(h21(i), h21(i + vec2(1, 0)), u.x), mix(h21(i + vec2(0, 1)), h21(i + vec2(1, 1)), u.x), u.y);
+}
 void main() {
   vec2 a = vSeg.xy, b = vSeg.zw, d = b - a;
   float l2 = dot(d, d);
   float t = l2 > 0.0 ? clamp(dot(vMap - a, d) / l2, 0.0, 1.0) : 0.0;
   float dist = length(vMap - a - d * t);
   float r = vRR.x;
+  // рваный край: «лепестки» размером с долю радиуса и мелкая бахрома; узор привязан к карте,
+  // поэтому у мастера и игроков одинаковый и не меняется при зуме
+  vec2 q = vMap / r;
+  float rag = (vn(q * 1.6) - 0.5) * 0.55 + (vn(q * 4.1 + 17.0) - 0.5) * 0.25 + (vn(q * 11.0 + 5.0) - 0.5) * 0.1;
+  dist += rag * r;
   // мягкий край: часть радиуса, но не уже пары экранных пикселей
-  float soft = max(r * 0.3, 1.5 / uScale);
+  float soft = max(r * 0.22, 1.5 / uScale);
   float cov = 1.0 - smoothstep(r - soft, r, dist);
   o = vec4(vRR.y > 0.5 ? 1.0 - cov : cov);
 }`;
@@ -373,12 +385,27 @@ vec4 trees(vec2 p, float c, float lat, float snow) {
   return acc;
 }
 
+// Погодное облако уровня n: (плотность облака, тень). Узор уровня фиксирован — переход по зуму плавный.
+vec2 weatherCloud(vec2 p, float n, vec2 wind, float cov) {
+  float f = 0.006 * exp2(n);
+  float cpx = uScale / f;
+  vec2 off = vec2(hash(vec2(n + 31.0, 7.0)), hash(vec2(3.0, n + 47.0))) * 100.0;
+  vec2 q = (p - wind) * f + off;
+  vec2 qw = q + vec2(fbm(q * 1.3, 3, cpx * 1.3), fbm(q * 1.3 + 5.2, 3, cpx * 1.3)) * 0.35;
+  float c = fbm(qw, 6, cpx);
+  vec2 qs = q - vec2(30.0, 24.0) * 0.006;   // тень смещена на постоянную долю облака
+  vec2 qsw = qs + vec2(fbm(qs * 1.3, 3, cpx * 1.3), fbm(qs * 1.3 + 5.2, 3, cpx * 1.3)) * 0.35;
+  float sh = smoothstep(cov, cov + 0.1, fbm(qsw, 6, cpx));
+  float cl = smoothstep(cov, cov + 0.05, c) * (0.6 + 0.4 * smoothstep(cov, cov + 0.25, c));
+  return vec2(cl, sh);
+}
+
 // Облака тумана: уровень n — свой фиксированный узор (частота 2^n), поэтому при зуме
 // соседние уровни плавно перетекают друг в друга без скачков. Возвращает (плотность, освещённость).
 vec2 fogLevel(vec2 p, float n, vec2 drift, float seed) {
   float f = 0.006 * exp2(n);
   vec2 off = vec2(hash(vec2(n + 50.0, seed)), hash(vec2(seed, n + 90.0))) * 100.0;
-  vec2 q = (p + drift * 3.0) * f + off;  // дрейф в px карты в секунду
+  vec2 q = (p + drift * 0.3) * f + off;  // дрейф в px карты в секунду
   vec2 w = q + vec2(fbm(q * 0.7, 3, 8.0), fbm(q * 0.7 + 4.3, 3, 8.0)) * 1.2;
   float c = fbm(w, 4, 8.0);
   float c2 = fbm(w + vec2(0.07), 4, 8.0);
@@ -594,24 +621,21 @@ void main() {
   col = mix(painted, orig, uMix);
 
   // ---------- облака и их тени ----------
+  // Издалека — как раньше (крупные, редкие). Вблизи уровни детализации растут вместе с зумом,
+  // поэтому облака мельче и чаще и остаются на экране. Соседние уровни плавно перетекают.
   if (uClouds > 0.5) {
-    vec2 wind = vec2(1.0, 0.3) * uTime * 4.0;
-    float f = 0.006;
-    float cpx = uScale / f;
+    vec2 wind = vec2(1.0, 0.3) * uTime * 0.4;
     float cov = seasf(0.64, 0.67, 0.63, 0.62);
-    vec2 q = (p - wind) * f;
-    vec2 qw = q + vec2(fbm(q * 1.3, 3, cpx * 1.3), fbm(q * 1.3 + 5.2, 3, cpx * 1.3)) * 0.35;
-    float c = fbm(qw, 6, cpx);
-    float cl = smoothstep(cov, cov + 0.05, c);
-    vec2 qs = (p - wind - vec2(30.0, 24.0)) * f;
-    vec2 qsw = qs + vec2(fbm(qs * 1.3, 3, cpx * 1.3), fbm(qs * 1.3 + 5.2, 3, cpx * 1.3)) * 0.35;
-    float sh = smoothstep(cov, cov + 0.1, fbm(qsw, 6, cpx));
-    col *= 1.0 - 0.35 * sh;
-    // сами облака: пухлые, светлее в середине, серые снизу
-    float thick = smoothstep(cov, cov + 0.25, c);
-    vec3 cloudCol = mix(vec3(0.66, 0.68, 0.7), vec3(0.97, 0.97, 0.98), thick);
-    float vis = (1.0 - smoothstep(1.0, 2.8, uScale)) * 0.92;
-    col = mix(col, cloudCol, cl * vis);
+    float lzc = max(0.0, log2(uScale / 0.5) * 0.8);
+    float l0 = floor(lzc), lf = lzc - l0;
+    lf = lf * lf * (3.0 - 2.0 * lf);
+    vec2 cA = weatherCloud(p, l0, wind, cov), cB = weatherCloud(p, l0 + 1.0, wind, cov);
+    vec2 cl2 = mix(cA, cB, lf);       // (облако, тень)
+    // вблизи облака реже и прозрачнее, чтобы не закрывать игру
+    float near = smoothstep(1.0, 6.0, uScale);
+    col *= 1.0 - 0.35 * cl2.y * (1.0 - 0.3 * near);
+    vec3 cloudCol = mix(vec3(0.66, 0.68, 0.7), vec3(0.97, 0.97, 0.98), smoothstep(0.0, 1.0, cl2.x));
+    col = mix(col, cloudCol, cl2.x * mix(0.92, 0.72, near));
   }
 
   // ---------- солнце сверху: тёплый свет, лёгкие лучи, верх светлее низа ----------
@@ -634,14 +658,15 @@ void main() {
     float fm = texture(uFog, vScr).r;
     float lz = log2(uScale);
     float edgeN = fogLod(p, lz + 2.5, vec2(uTime * 0.4, uTime * 0.15), 7.0).x;
-    float fe = smoothstep(0.38, 0.62, fm + (edgeN - 0.5) * 0.55);
+    float fe = smoothstep(0.4, 0.6, fm + (edgeN - 0.5) * 0.3);
     if (fe > 0.0) {
       // подложка: светлая дымка с мягкими перепадами — без черноты
       float hz = fogLod(p, lz - 1.0, vec2(uTime * 0.3, -uTime * 0.2), 3.0).x;
       vec3 hidden = mix(vec3(0.33, 0.34, 0.36), vec3(0.5, 0.5, 0.51), smoothstep(0.3, 0.7, hz));
-      // сквозь дымку чуть угадывается местность
+      // сквозь дымку видна приглушённая местность (ползунок мастера)
       float g = dot(col, vec3(0.3, 0.59, 0.11));
-      hidden = mix(hidden, hidden * (0.75 + 0.5 * g), uFogGhost);
+      vec3 ghost = mix(vec3(g), col, 0.35) * 0.8 + vec3(0.04, 0.035, 0.03);
+      hidden = mix(hidden, ghost, uFogGhost * 0.85);
       // три слоя: крупный на восток, средний на северо-запад, мелкий на юг
       vec2 dirs[3] = vec2[3](vec2(1.6, 0.4), vec2(-1.1, -0.9), vec2(0.3, 1.4));
       float bias[3] = float[3](-0.6, 0.2, 1.0);
@@ -651,7 +676,7 @@ void main() {
         // тень верхнего слоя на нижнем
         hidden *= 1.0 - 0.18 * dens;
         vec3 cc = mix(vec3(0.42, 0.42, 0.43), vec3(0.8, 0.79, 0.76), cl.y) * (0.92 + 0.05 * float(k));
-        hidden = mix(hidden, cc, dens * 0.85);
+        hidden = mix(hidden, cc, dens * mix(0.85, 0.45, uFogGhost));
       }
       float rim = fe * (1.0 - fe) * 4.0;
       col = mix(col, col * vec3(0.6, 0.52, 0.42), rim * 0.5 * uFogStrength);

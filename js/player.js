@@ -1,12 +1,12 @@
 // Экран игроков: только то, что открыл мастер.
-import { Viewer, loadInfo } from './viewer.js?v=e0729c15';
-import { Fog } from './fog.js?v=e0729c15';
-import { loadState, loadFogData, loadView, saveView, channel, defaultState } from './state.js?v=e0729c15';
-import { trailLayer, waypointLayer, partyLayer, pingLayer, drawRuler, scaleBarLayer, settlementLayer } from './layers.js?v=e0729c15';
-import { enemyLayer } from './enemies.js?v=e0729c15';
-import { MapRenderer } from './gl.js?v=e0729c15';
-import { Places, placeLabelLayer } from './places.js?v=e0729c15';
-import { renderSettings } from './state.js?v=e0729c15';
+import { Viewer, loadInfo } from './viewer.js?v=61c03b0e';
+import { Fog } from './fog.js?v=61c03b0e';
+import { loadState, loadFogData, loadView, saveView, channel, defaultState } from './state.js?v=61c03b0e';
+import { trailLayer, waypointLayer, partyLayer, pingLayer, drawRuler, scaleBarLayer, settlementLayer } from './layers.js?v=61c03b0e';
+import { enemyLayer } from './enemies.js?v=61c03b0e';
+import { MapRenderer } from './gl.js?v=61c03b0e';
+import { Places, placeLabelLayer } from './places.js?v=61c03b0e';
+import { renderSettings } from './state.js?v=61c03b0e';
 
 const $ = id => document.getElementById(id);
 const info = await loadInfo();
