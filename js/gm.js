@@ -1,14 +1,14 @@
 // Экран мастера.
-import { Viewer, loadInfo, isTyping } from './viewer.js?v=3cf7e3b5';
-import { Fog } from './fog.js?v=3cf7e3b5';
+import { Viewer, loadInfo, isTyping } from './viewer.js?v=83fcac86';
+import { Fog } from './fog.js?v=83fcac86';
 import {
   loadState, saveState, loadFogData, saveFogData, loadView, saveView, clearAll, channel,
   stepPoint, bearingTo, distKm, rumb, fmtKm, uid, defaultState,
-} from './state.js?v=3cf7e3b5';
-import { trailLayer, waypointLayer, partyLayer, pingLayer, drawRuler, scaleBarLayer, settlementLayer } from './layers.js?v=3cf7e3b5';
-import { MapRenderer } from './gl.js?v=3cf7e3b5';
-import { Places, placeLabelLayer, KIND_NAMES, wikiSummary, wikiUrl } from './places.js?v=3cf7e3b5';
-import { renderSettings } from './state.js?v=3cf7e3b5';
+} from './state.js?v=83fcac86';
+import { trailLayer, waypointLayer, partyLayer, pingLayer, drawRuler, scaleBarLayer, settlementLayer } from './layers.js?v=83fcac86';
+import { MapRenderer } from './gl.js?v=83fcac86';
+import { Places, placeLabelLayer, KIND_NAMES, wikiSummary, wikiUrl } from './places.js?v=83fcac86';
+import { renderSettings } from './state.js?v=83fcac86';
 
 const $ = id => document.getElementById(id);
 const ICONS = ['★', '🏰', '🏘️', '⛺', '⚔️', '💀', '🐉', '🗝️', '💰', '❓', '❗', '⛪', '🌲', '⛰️', '🕳️', '⚓', '🔥', '👁️'];

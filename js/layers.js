@@ -1,5 +1,5 @@
 // Общие слои для экрана мастера и экрана игроков (рисуют в экранных координатах).
-import { fmtKm, rumb } from './state.js?v=3cf7e3b5';
+import { fmtKm, rumb } from './state.js?v=83fcac86';
 
 export function trailLayer(getState, visible = () => true) {
   return {

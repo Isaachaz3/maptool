@@ -374,8 +374,10 @@ void main() {
     orig = mix(orig, autumn, mF * SW.z * 0.65);
     orig = mix(orig, vec3(0.97, 0.98, 1.0) * mix(0.55, 1.05, smoothstep(0.15, 0.85, l)), snow * (1.0 - mW) * 0.85);
     // цветокоррекция: чуть контрастнее и насыщеннее
-    orig = clamp((orig - 0.5) * 1.16 + 0.5, 0.0, 1.0);
-    orig = clamp(mix(vec3(dot(orig, vec3(0.3, 0.59, 0.11))), orig, 1.12), 0.0, 1.0);
+    // контраст без засветки: светлое не трогаем, середину и тени углубляем (гамма + мягкая S-кривая к 0.75)
+    orig = pow(orig, vec3(1.25));
+    orig = clamp((orig - 0.75) * 1.12 + 0.75, 0.0, 1.0) * 0.97;
+    orig = clamp(mix(vec3(dot(orig, vec3(0.3, 0.59, 0.11))), orig, 1.15), 0.0, 1.0);
     // отмывка рельефа по разметке — горы на картинке становятся объёмными
     if (sd(t0.b, SDF_R) > -10.0 || sd(t1.r, SDF_R) > -10.0) {
       float eo = max(px * 1.2, 0.3);
@@ -554,8 +556,10 @@ void main() {
     float ang = atan(dv.x, dv.y);
     float rays = 0.5 + 0.5 * sin(ang * 23.0 + uTime * 0.05) * sin(ang * 9.0 - uTime * 0.03);
     float glow = exp(-d * d * 1.6);
-    col += vec3(1.0, 0.85, 0.58) * (0.13 * glow + 0.05 * glow * rays);
-    col *= mix(1.05, 0.92, smoothstep(0.0, 1.0, vScr.y));
+    vec3 sunC = vec3(1.0, 0.85, 0.58) * (0.13 * glow + 0.05 * glow * rays);
+    // на светлой карте-картинке свет — тёплый оттенок (умножение), на рисованной — добавка
+    col = mix(col + sunC, col * (1.0 + sunC * vec3(0.6, 0.35, -0.2)), uMix);
+    col *= mix(mix(1.05, 0.92, smoothstep(0.0, 1.0, vScr.y)), mix(1.0, 0.9, smoothstep(0.0, 1.0, vScr.y)), uMix);
     col *= vec3(1.02, 1.0, 0.96);
   }
 
