@@ -20,7 +20,9 @@ export function defaultState() {
     stepKm: 6,
     steps: 1,
     kmPerPx: DEFAULT_KM_PER_PX,
-    visionKm: 40,
+    visionKm: 3,
+    scoutKm: 5,             // разведка: радиус круга вокруг отряда
+    scoutCostsTurn: true,
     autoReveal: true,
     brushKm: 40,
     fogEnabled: true,
@@ -41,13 +43,24 @@ export function defaultState() {
     placeEdits: {},         // правки мастера к местам энциклопедии: id → поля
     customPlaces: [],
     waypoints: [],
+    enemy: null,            // настройки противников (заполняются defaultEnemyConfig)
+    enemies: [],
+    enemyUndo: [],
+    enemyLog: [],
+    schema: 2,
   };
 }
 
 export function loadState() {
   try {
     const raw = localStorage.getItem(KEY);
-    if (raw) return { ...defaultState(), ...JSON.parse(raw) };
+    if (raw) {
+      const saved = JSON.parse(raw);
+      const S = { ...defaultState(), ...saved };
+      // схема 2: обзор отряда по умолчанию 3 км (был 40), появились противники
+      if (!saved.schema || saved.schema < 2) { S.visionKm = 3; S.schema = 2; }
+      return S;
+    }
   } catch (e) { console.warn('state load failed', e); }
   return defaultState();
 }

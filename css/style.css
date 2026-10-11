@@ -144,3 +144,27 @@ dialog.place .wiki { background: #12151b; border: 1px solid var(--line); border-
 dialog.place .wiki:empty { display: none; }
 dialog.place .wiki a { color: var(--accent); }
 .wiki-src { display: block; margin-top: 6px; font: 12px system-ui; color: var(--muted); }
+
+/* противники */
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0 8px; }
+.grid2 label { margin: 4px 0 !important; }
+#enBox.off { opacity: .45; pointer-events: none; }
+#enList .en { display: flex; align-items: center; gap: 6px; padding: 3px 4px; border-radius: 6px; font-size: 13px; }
+#enList .en:hover { background: var(--panel-2); }
+#enList .en .ic { font-size: 16px; width: 22px; text-align: center; }
+#enList .en .nm { flex: 1; min-width: 0; cursor: pointer; }
+#enList .en .nm small { color: var(--muted); display: block; }
+#enList .en.seen .nm b { color: #f2c14e; }
+#enList .en.chase .nm b { color: #ff8a78; }
+#enList button { padding: 1px 5px; background: transparent; border-color: transparent; font-size: 13px; }
+#enList button:hover { background: #343a48; }
+.log { margin-top: 8px; max-height: 140px; overflow-y: auto; font-size: 12px; color: var(--muted); }
+.log div { padding: 2px 0; border-bottom: 1px solid #2a2f3b; }
+.log .warn { color: #ffb36b; }
+.log .alarm { color: #ff7b6b; font-weight: 600; }
+.log .spot { color: #f2c14e; }
+/* уведомление на экране игроков */
+#pnotice { position: fixed; left: 50%; top: 18%; transform: translateX(-50%); z-index: 9; padding: 12px 26px;
+  background: rgba(40,14,10,.88); border: 2px solid #8e2a1c; border-radius: 10px; color: #ffdccf;
+  font: 700 26px "Alegreya SC", Georgia, serif; letter-spacing: .04em; transition: opacity .6s; pointer-events: none; }
+#pnotice.hidden { opacity: 0; }

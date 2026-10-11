@@ -34,6 +34,7 @@ in vec2 vUV;
 in vec2 vMap;
 uniform sampler2D uLab, uFog;
 uniform vec2 uMap;
+uniform vec2 uFogSize;
 uniform vec2 uTexel;
 uniform float uAlpha, uFogOn, uFogStrength;
 out vec4 o;
@@ -48,10 +49,58 @@ void main() {
   vec3 col = mix(vec3(0.05, 0.04, 0.03), cream, smoothstep(0.25, 0.55, a));
   float alpha = max(smoothstep(0.2, 0.5, a) * 0.92, sh * 0.45) * uAlpha;
   if (uFogOn > 0.5) {
-    float f = texture(uFog, vMap / uMap).a;
+    float f = texture(uFog, gl_FragCoord.xy / uFogSize).r;
     alpha *= 1.0 - smoothstep(0.3, 0.7, f) * uFogStrength;
   }
   o = vec4(col, alpha);
+}`;
+
+// Туман: экранный буфер «насколько скрыто» (R: 1 — туман). Сначала подложка (растр), затем фигуры:
+// открытие — смешивание MIN, скрытие — MAX, в порядке добавления.
+const FS_FOGBASE = `#version 300 es
+precision highp float;
+in vec2 vUV;
+in vec2 vMap;
+uniform sampler2D uTile;
+out vec4 o;
+void main() { o = vec4(texture(uTile, vUV).a); }`;
+
+const VS_FOGOP = `#version 300 es
+in vec2 aPos;      // угол квада 0..1
+in vec4 aSeg;      // x0, y0, x1, y1 (px карты)
+in vec2 aRR;       // радиус, 1 — открыть / 0 — скрыть
+uniform vec3 uView;
+uniform vec2 uRes;
+out vec2 vMap;
+flat out vec4 vSeg;
+flat out vec2 vRR;
+void main() {
+  vec2 lo = min(aSeg.xy, aSeg.zw) - aRR.x - 2.0 / uView.z;
+  vec2 hi = max(aSeg.xy, aSeg.zw) + aRR.x + 2.0 / uView.z;
+  vec2 m = mix(lo, hi, aPos);
+  vec2 s = (m - uView.xy) * uView.z + uRes * 0.5;
+  gl_Position = vec4(s / uRes * 2.0 - 1.0, 0.0, 1.0);
+  gl_Position.y = -gl_Position.y;
+  vMap = m; vSeg = aSeg; vRR = aRR;
+}`;
+
+const FS_FOGOP = `#version 300 es
+precision highp float;
+in vec2 vMap;
+flat in vec4 vSeg;
+flat in vec2 vRR;
+uniform float uScale;
+out vec4 o;
+void main() {
+  vec2 a = vSeg.xy, b = vSeg.zw, d = b - a;
+  float l2 = dot(d, d);
+  float t = l2 > 0.0 ? clamp(dot(vMap - a, d) / l2, 0.0, 1.0) : 0.0;
+  float dist = length(vMap - a - d * t);
+  float r = vRR.x;
+  // мягкий край: часть радиуса, но не уже пары экранных пикселей
+  float soft = max(r * 0.3, 1.5 / uScale);
+  float cov = 1.0 - smoothstep(r - soft, r, dist);
+  o = vec4(vRR.y > 0.5 ? 1.0 - cov : cov);
 }`;
 
 // Дороги, тропы и реки — настоящая геометрия (полосы вдоль полилиний), рисуется в два буфера:
@@ -582,7 +631,7 @@ void main() {
 
   // ---------- туман войны: дымка и несколько слоёв облаков, плывущих в разные стороны ----------
   if (uFogOn > 0.5) {
-    float fm = ins ? texture(uFog, uv).a : 1.0;
+    float fm = texture(uFog, vScr).r;
     float lz = log2(uScale);
     float edgeN = fogLod(p, lz + 2.5, vec2(uTime * 0.4, uTime * 0.15), 7.0).x;
     float fe = smoothstep(0.38, 0.62, fm + (edgeN - 0.5) * 0.55);
@@ -728,6 +777,9 @@ export class MapRenderer {
     this.label = program(gl, VS_RECT, FS_LABEL);
     this.fx = program(gl, VS_FX, FS_FX);
     this.lineProg = program(gl, VS_LINE, FS_LINE, ['aPos', 'aNrm', 'aSide', 'aAlong', 'aWidth', 'aKind']);
+    this.fogBaseProg = program(gl, VS_RECT, FS_FOGBASE);
+    this.fogOpProg = program(gl, VS_FOGOP, FS_FOGOP, ['aPos', 'aSeg', 'aRR']);
+    this.fogOps = { vao: null, buf: null, count: 0, version: -1, batches: [] };
     this.quadVao = gl.createVertexArray();
     gl.bindVertexArray(this.quadVao);
     this.quad = gl.createBuffer();
@@ -743,7 +795,7 @@ export class MapRenderer {
     this.tileTex = new Map();
     this.labelTex = new Map();  // key → { tex, ok, used }
     this.labelInfo = null;
-    this.fogVersion = -1;
+    this.fogBaseVersion = -1;
     this.fogTex = this.makeTex();
     this.ready = false;
     this.start = performance.now();
@@ -854,11 +906,94 @@ export class MapRenderer {
   }
 
   syncFog() {
-    if (this.fog.version === this.fogVersion) return;
-    const gl = this.gl;
+    const gl = this.gl, f = this.fog;
+    if (f.baseVersion !== this.fogBaseVersion) {
+      gl.bindTexture(gl.TEXTURE_2D, this.fogTex);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, f.base);
+      this.fogBaseVersion = f.baseVersion;
+    }
+    const F = this.fogOps;
+    if (F.version === f.version) return;
+    F.version = f.version;
+    const ops = f.ops;
+    const data = new Float32Array(ops.length * 6);
+    F.batches = [];
+    ops.forEach((o, i) => {
+      data.set([o.x0, o.y0, o.x1, o.y1, o.r, o.rev ? 1 : 0], i * 6);
+      const last = F.batches[F.batches.length - 1];
+      if (last && last.rev === o.rev) last.n++;
+      else F.batches.push({ rev: o.rev, start: i, n: 1 });
+    });
+    if (!F.vao) {
+      F.vao = gl.createVertexArray();
+      F.buf = gl.createBuffer();
+      gl.bindVertexArray(F.vao);
+      gl.bindBuffer(gl.ARRAY_BUFFER, this.quad);
+      gl.enableVertexAttribArray(0);
+      gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+      gl.bindVertexArray(null);
+    }
+    gl.bindBuffer(gl.ARRAY_BUFFER, F.buf);
+    gl.bufferData(gl.ARRAY_BUFFER, data.length ? data : new Float32Array(6), gl.DYNAMIC_DRAW);
+    F.count = ops.length;
+  }
+
+  // экранный буфер тумана (R = насколько скрыто)
+  drawFog() {
+    const gl = this.gl, v = this.viewer, w = this.canvas.width, h = this.canvas.height;
+    if (!this.fogFbo || this.fogFbo.w !== w || this.fogFbo.h !== h) {
+      const f = this.fogFbo || { fb: gl.createFramebuffer() };
+      if (f.tex) gl.deleteTexture(f.tex);
+      f.tex = this.makeTex();
+      gl.bindTexture(gl.TEXTURE_2D, f.tex);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, f.fb);
+      gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, f.tex, 0);
+      f.w = w; f.h = h;
+      this.fogFbo = f;
+    }
+    gl.bindFramebuffer(gl.FRAMEBUFFER, this.fogFbo.fb);
+    gl.viewport(0, 0, w, h);
+    gl.clearColor(1, 1, 1, 1);
+    gl.clear(gl.COLOR_BUFFER_BIT);
+    // подложка по всей карте
+    let P = this.fogBaseProg;
+    gl.useProgram(P.p);
+    gl.bindVertexArray(this.quadVao);
+    gl.uniform3f(P.u.uView, v.cx, v.cy, v.scale);
+    gl.uniform2f(P.u.uRes, v.vw, v.vh);
+    gl.uniform4f(P.u.uRect, 0, 0, v.W, v.H);
+    gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_2D, this.fogTex);
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, this.fog.canvas);
-    this.fogVersion = this.fog.version;
+    gl.uniform1i(P.u.uTile, 0);
+    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+    // фигуры
+    const F = this.fogOps;
+    if (F.count) {
+      P = this.fogOpProg;
+      gl.useProgram(P.p);
+      gl.uniform3f(P.u.uView, v.cx, v.cy, v.scale);
+      gl.uniform2f(P.u.uRes, v.vw, v.vh);
+      gl.uniform1f(P.u.uScale, v.scale);
+      gl.bindVertexArray(F.vao);
+      gl.bindBuffer(gl.ARRAY_BUFFER, F.buf);
+      gl.enable(gl.BLEND);
+      gl.blendFunc(gl.ONE, gl.ONE);
+      for (const b of F.batches) {
+        gl.blendEquation(b.rev ? gl.MIN : gl.MAX);
+        gl.enableVertexAttribArray(1);
+        gl.vertexAttribPointer(1, 4, gl.FLOAT, false, 24, b.start * 24);
+        gl.vertexAttribDivisor(1, 1);
+        gl.enableVertexAttribArray(2);
+        gl.vertexAttribPointer(2, 2, gl.FLOAT, false, 24, b.start * 24 + 16);
+        gl.vertexAttribDivisor(2, 1);
+        gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, b.n);
+      }
+      gl.blendEquation(gl.FUNC_ADD);
+      gl.disable(gl.BLEND);
+      gl.bindVertexArray(this.quadVao);
+    }
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
   }
 
   resize() {
@@ -999,8 +1134,9 @@ export class MapRenderer {
     gl.uniform1f(P.u.uFogStrength, set.fogStrength);
     gl.uniform1i(P.u.uLab, 0);
     gl.uniform1i(P.u.uFog, 1);
+    gl.uniform2f(P.u.uFogSize, this.canvas.width, this.canvas.height);
     gl.activeTexture(gl.TEXTURE1);
-    gl.bindTexture(gl.TEXTURE_2D, this.fogTex);
+    gl.bindTexture(gl.TEXTURE_2D, set.fogOn && this.fogFbo ? this.fogFbo.tex : this.fogTex);
     gl.activeTexture(gl.TEXTURE0);
     const T = info.tileSize, have = info.sets[l];
     for (const [c, r, x, y] of this.visibleTiles(levels, l, T, fx, fy)) {
@@ -1035,6 +1171,7 @@ export class MapRenderer {
     if (mix > 0.001) this.drawTiles();
     const lines = !!this.lines && mix < 0.999;
     if (lines) this.drawLines();
+    if (set.fogOn) this.drawFog();
     if (v.frame % 120 === 0) this.gcTiles();
 
     const P = this.fx;
@@ -1054,7 +1191,7 @@ export class MapRenderer {
     gl.uniform1f(P.u.uDetail, set.detail ?? 1);
     gl.uniform1f(P.u.uLines, lines ? 1 : 0);
     const units = [['uT0', this.tex.t0], ['uT1', this.tex.t1], ['uT2', this.tex.t2], ['uT3', this.tex.t3],
-      ['uFog', this.fogTex], ['uBase', mix > 0.001 ? this.baseTex : this.fogTex],
+      ['uFog', set.fogOn ? this.fogFbo.tex : this.fogTex], ['uBase', mix > 0.001 ? this.baseTex : this.fogTex],
       ['uRoads', lines ? this.lineFbo.roads : this.fogTex], ['uRivers', lines ? this.lineFbo.rivers : this.fogTex]];
     units.forEach(([name, tex], i) => {
       gl.activeTexture(gl.TEXTURE0 + i);

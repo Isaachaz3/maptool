@@ -1,11 +1,12 @@
 // Экран игроков: только то, что открыл мастер.
-import { Viewer, loadInfo } from './viewer.js?v=4b0c36e8';
-import { Fog } from './fog.js?v=4b0c36e8';
-import { loadState, loadFogData, loadView, saveView, channel, defaultState } from './state.js?v=4b0c36e8';
-import { trailLayer, waypointLayer, partyLayer, pingLayer, drawRuler, scaleBarLayer, settlementLayer } from './layers.js?v=4b0c36e8';
-import { MapRenderer } from './gl.js?v=4b0c36e8';
-import { Places, placeLabelLayer } from './places.js?v=4b0c36e8';
-import { renderSettings } from './state.js?v=4b0c36e8';
+import { Viewer, loadInfo } from './viewer.js?v=e0729c15';
+import { Fog } from './fog.js?v=e0729c15';
+import { loadState, loadFogData, loadView, saveView, channel, defaultState } from './state.js?v=e0729c15';
+import { trailLayer, waypointLayer, partyLayer, pingLayer, drawRuler, scaleBarLayer, settlementLayer } from './layers.js?v=e0729c15';
+import { enemyLayer } from './enemies.js?v=e0729c15';
+import { MapRenderer } from './gl.js?v=e0729c15';
+import { Places, placeLabelLayer } from './places.js?v=e0729c15';
+import { renderSettings } from './state.js?v=e0729c15';
 
 const $ = id => document.getElementById(id);
 const info = await loadInfo();
@@ -38,6 +39,7 @@ viewer.layers.push(
   fog.layer(() => 1, () => S.fogEnabled),
   // метки, которые мастер сделал видимыми, показываем даже в тумане — игроки о них «слышали»
   waypointLayer(() => S.waypoints.filter(w => w.visible !== false)),
+  enemyLayer(() => S, { player: true, onlySeen: true }),
   partyLayer(() => S),
   pings,
   { draw(ctx, v) { if (ruler) drawRuler(ctx, v, ruler.a, ruler.b, S.kmPerPx); } },
@@ -89,6 +91,11 @@ bc.onmessage = ({ data: m }) => {
     viewer.animateTo(f.cx, f.cy, f.scale, m.ms ?? 600);
   } else if (m.t === 'ping') {
     pings.add(m.x, m.y, m.color); viewer.invalidate();
+  } else if (m.t === 'enemySpotted') {
+    pings.add(m.x, m.y, '#ff6a4a'); viewer.invalidate();
+    notice(`Замечен отряд: ${m.name}`);
+  } else if (m.t === 'enemyContact') {
+    notice(`${m.name} настигли отряд!`);
   } else if (m.t === 'showPlace') {
     showPlaceCard(m.place);
   } else if (m.t === 'ruler') {
@@ -149,3 +156,13 @@ window.addEventListener('keydown', e => { if (e.code === 'Escape') $('placeCard'
 $('placeCard').addEventListener('click', () => $('placeCard').classList.add('hidden'));
 
 window.__appStarted = true;
+
+// крупное уведомление на экране игроков
+let noticeTimer = null;
+function notice(text) {
+  const el = $('pnotice');
+  el.textContent = text;
+  el.classList.remove('hidden');
+  clearTimeout(noticeTimer);
+  noticeTimer = setTimeout(() => el.classList.add('hidden'), 4000);
+}

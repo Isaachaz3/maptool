@@ -4,8 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Ходилка по Фаэруну — мастер</title>
-<link rel="stylesheet" href="assets/fonts.css?v=4b0c36e8">
-<link rel="stylesheet" href="css/style.css?v=4b0c36e8">
+<link rel="stylesheet" href="assets/fonts.css?v=e0729c15">
+<link rel="stylesheet" href="css/style.css?v=e0729c15">
 </head>
 <body class="gm">
 <canvas id="gl"></canvas>
@@ -20,6 +20,7 @@
   <button data-tool="reveal" title="Открыть туман кистью (R)">☀️</button>
   <button data-tool="hide" title="Скрыть туманом кистью (H)">☁️</button>
   <button data-tool="ruler" title="Линейка (L)">📏</button>
+  <button data-tool="enemy" title="Вражеский отряд: клик — поставить, перетащить — сдвинуть (E)">👹</button>
   <button data-tool="ping" title="Пинг — видят все экраны (P). Также Shift+клик в любом режиме">📡</button>
 </div>
 
@@ -45,6 +46,10 @@
       </div>
     </div>
     <button id="doStep" class="primary">Сделать ход ⏎</button>
+    <div class="row">
+      <button id="scout" title="Разведка (S): открыть круг вокруг отряда и найти противников в нём">🔭 Разведка</button>
+      <button id="waitTurn" title="Отряд стоит, противники делают ход (Z)">⏳ Ждать ход</button>
+    </div>
     <div class="row">
       <button id="undo" title="Ctrl+Z">↶ Отменить ход</button>
       <button id="centerParty" title="C">⌖ К отряду</button>
@@ -83,7 +88,9 @@
     <h2>Туман войны</h2>
     <label class="check"><input type="checkbox" id="fogEnabled"> Туман включён</label>
     <label class="check"><input type="checkbox" id="autoReveal"> Открывать вокруг отряда при ходе</label>
-    <label>Обзор отряда, км <input type="number" id="visionKm" min="1" step="1"></label>
+    <label>Обзор отряда, км <input type="number" id="visionKm" min="0.5" step="0.5"></label>
+    <label>Разведка: радиус, км (диаметр — вдвое больше) <input type="number" id="scoutKm" min="0.5" step="0.5"></label>
+    <label class="check"><input type="checkbox" id="scoutCostsTurn"> Разведка тратит ход (противники ходят)</label>
     <label class="check"><input type="checkbox" id="showVisionToGM"> Показывать мне круг обзора</label>
     <label>Кисть ☀️/☁️, км: <span id="brushKmVal"></span>
       <input type="range" id="brushKm" min="5" max="600" step="5">
@@ -104,6 +111,36 @@
     <h2>Метки <button id="addWpHere" class="inline" title="Поставить метку в точке отряда">+ у отряда</button></h2>
     <div id="wpList"></div>
     <p class="hint">Инструмент 📍: клик по пустому месту — новая метка, по метке — редактировать.</p>
+  </section>
+
+  <section>
+    <h2>Противники</h2>
+    <label class="check"><input type="checkbox" id="enEnabled"> Бродячие вражеские отряды</label>
+    <div id="enBox">
+      <div class="grid2">
+        <label>Отрядов в круге <input type="number" id="enCount" min="0" max="60" step="1"></label>
+        <label>Радиус круга, км <input type="number" id="enRadius" min="20" step="10"></label>
+        <label>Обзор противника, км <input type="number" id="enVision" min="0.5" step="0.5"></label>
+        <label>Шаг блуждания, км <input type="number" id="enStep" min="0.5" step="0.5"></label>
+        <label>Погоня от, км <input type="number" id="enChaseMin" min="0.5" step="0.5"></label>
+        <label>Погоня до, км <input type="number" id="enChaseMax" min="0.5" step="0.5"></label>
+        <label>Разведка противника, км <input type="number" id="enScoutKm" min="0.5" step="0.5"></label>
+        <label>Шанс разведки за ход, % <input type="number" id="enScoutChance" min="0" max="100" step="5"></label>
+        <label>Замечают отряд, % от <input type="number" id="enNoticeMin" min="0" max="100" step="5"></label>
+        <label>до <input type="number" id="enNoticeMax" min="0" max="100" step="5"></label>
+        <label>Интерес к отряду, % от <input type="number" id="enInterestMin" min="0" max="100" step="5"></label>
+        <label>до <input type="number" id="enInterestMax" min="0" max="100" step="5"></label>
+        <label>Игроки замечают, % <input type="number" id="enPlayerNotice" min="0" max="100" step="5"></label>
+        <label>Сопровождение, км <input type="number" id="enTrack" min="1" step="1"></label>
+      </div>
+      <label class="check"><input type="checkbox" id="enShowVision"> Показывать мне обзор противников</label>
+      <div class="row small">
+        <button id="enRespawn">🔄 Новые отряды</button>
+        <button id="enAdd">＋ Отряд рядом</button>
+      </div>
+      <div id="enList"></div>
+      <div id="enLog" class="log"></div>
+    </div>
   </section>
 
   <section>
@@ -201,6 +238,6 @@
   window.addEventListener('unhandledrejection', function (e) { __bootErr(String(e.reason && e.reason.message || e.reason)); });
   setTimeout(function () { if (!window.__appStarted) __bootErr('Приложение не запустилось. Обновите страницу с очисткой кэша (Ctrl+F5). Если не поможет — пришлите этот текст.'); }, 8000);
 </script>
-<script type="module" src="js/gm.js?v=4b0c36e8"></script>
+<script type="module" src="js/gm.js?v=e0729c15"></script>
 </body>
 </html>

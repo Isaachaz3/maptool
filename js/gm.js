@@ -1,20 +1,28 @@
 // Экран мастера.
-import { Viewer, loadInfo, isTyping } from './viewer.js?v=4b0c36e8';
-import { Fog } from './fog.js?v=4b0c36e8';
+import { Viewer, loadInfo, isTyping } from './viewer.js?v=e0729c15';
+import { Fog } from './fog.js?v=e0729c15';
 import {
   loadState, saveState, loadFogData, saveFogData, loadView, saveView, clearAll, channel,
   stepPoint, bearingTo, distKm, rumb, fmtKm, uid, defaultState,
-} from './state.js?v=4b0c36e8';
-import { trailLayer, waypointLayer, partyLayer, pingLayer, drawRuler, scaleBarLayer, settlementLayer } from './layers.js?v=4b0c36e8';
-import { MapRenderer } from './gl.js?v=4b0c36e8';
-import { Places, placeLabelLayer, KIND_NAMES, wikiSummary, wikiUrl } from './places.js?v=4b0c36e8';
-import { renderSettings } from './state.js?v=4b0c36e8';
+} from './state.js?v=e0729c15';
+import { trailLayer, waypointLayer, partyLayer, pingLayer, drawRuler, scaleBarLayer, settlementLayer } from './layers.js?v=e0729c15';
+import { EnemySim, Terrain, enemyLayer, defaultEnemyConfig } from './enemies.js?v=e0729c15';
+import { MapRenderer } from './gl.js?v=e0729c15';
+import { Places, placeLabelLayer, KIND_NAMES, wikiSummary, wikiUrl } from './places.js?v=e0729c15';
+import { renderSettings } from './state.js?v=e0729c15';
 
 const $ = id => document.getElementById(id);
 const ICONS = ['★', '🏰', '🏘️', '⛺', '⚔️', '💀', '🐉', '🗝️', '💰', '❓', '❗', '⛪', '🌲', '⛰️', '🕳️', '⚓', '🔥', '👁️'];
 
 const info = await loadInfo();
 let S = loadState();
+normalizeEnemies();
+function normalizeEnemies() {
+  S.enemy = { ...defaultEnemyConfig(), ...(S.enemy || {}) };
+  S.enemies = S.enemies || [];
+  S.enemyUndo = S.enemyUndo || [];
+  S.enemyLog = S.enemyLog || [];
+}
 const viewer = new Viewer($('map'), info);
 const fog = new Fog(info.width, info.height);
 window.mapViewer = viewer; // для отладки из консоли
@@ -69,13 +77,13 @@ function fogOp(op) {
   viewer.invalidate();
   clearTimeout(fogTimer);
   fogTimer = setTimeout(() => {
-    if (!saveFogData(fog.toDataURL())) toast('Туман не сохранился: переполнено хранилище браузера');
+    if (!saveFogData(fog.serialize())) toast('Туман не сохранился: переполнено хранилище браузера');
   }, 800);
 }
 
 function sendFull() {
   bc.postMessage({ t: 'state', state: S });
-  bc.postMessage({ t: 'fogFull', data: fog.toDataURL() });
+  bc.postMessage({ t: 'fogFull', data: fog.serialize() });
 }
 
 bc.onmessage = ({ data: m }) => {
@@ -115,6 +123,38 @@ function pushViewThrottled() {
   if (now - lastPush > 50) { lastPush = now; pushView(0); }
 }
 
+// ---------- противники ----------
+const terrain = new Terrain(info.width, info.height);
+const sim = new EnemySim({
+  S: () => S,
+  terrain,
+  log: (msg, kind = 'info', e) => enemyLog(msg, kind, e),
+  spotted: (e, how) => {
+    enemyLog(`Игроки ${how === 'scout' ? 'разведкой нашли' : 'заметили'}: ${e.name}`, 'spot', e);
+    bc.postMessage({ t: 'enemySpotted', name: e.name, x: e.x, y: e.y });
+    pings.add(e.x, e.y, '#ff6a4a');
+  },
+});
+function enemyLog(msg, kind, e) {
+  S.enemyLog.unshift({ t: S.turn, msg, kind });
+  S.enemyLog.length = Math.min(S.enemyLog.length, 60);
+  if (kind === 'warn' || kind === 'alarm' || kind === 'spot') toast(msg);
+  if (kind === 'alarm') bc.postMessage({ t: 'enemyContact', name: e ? e.name : '' });
+}
+function snapshotEnemies() {
+  if (!S.enemy.enabled) return;
+  S.enemyUndo.push({ len: S.trail.length, turn: S.turn, enemies: JSON.parse(JSON.stringify(S.enemies)) });
+  if (S.enemyUndo.length > 30) S.enemyUndo.shift();
+}
+// Один «ход мира» после действия отряда: противники действуют, игроки могут их заметить
+function worldTurn() {
+  if (!S.enemy.enabled) return;
+  sim.enemyTurn();
+  sim.playerSpot([S.party], S.visionKm, S.enemy.playerNotice, 'sight');
+  sim.track();
+  sim.populate();
+}
+
 // ---------- ходы ----------
 function doStep(times = S.steps) {
   let { x, y } = S.party;
@@ -122,16 +162,45 @@ function doStep(times = S.steps) {
     const p = stepPoint(x, y, S.bearing, S.stepKm, S.kmPerPx);
     p.x = Math.min(info.width, Math.max(0, p.x));
     p.y = Math.min(info.height, Math.max(0, p.y));
+    snapshotEnemies();
     if (S.autoReveal) fogOp({ k: 'line', x0: x, y0: y, x1: p.x, y1: p.y, r: S.visionKm / S.kmPerPx, reveal: true });
     const km = distKm(x, y, p.x, p.y, S.kmPerPx);
     S.trail.push({ x: p.x, y: p.y, km });
     S.turn++;
     S.totalKm += km;
+    // игроки замечают противников по пути
+    if (S.enemy.enabled) sim.playerSpot([{ x, y }, p], S.visionKm, S.enemy.playerNotice, 'sight');
     x = p.x; y = p.y;
+    S.party = { x, y };
+    worldTurn();
   }
   S.party = { x, y };
   commit();
   keepPartyVisible();
+}
+
+// Разведка: открыть круг и гарантированно найти противников в нём
+function scout() {
+  const r = S.scoutKm;
+  if (S.scoutCostsTurn) { snapshotEnemies(); S.trail.push({ x: S.party.x, y: S.party.y, km: 0, wait: true }); S.turn++; }
+  fogOp({ k: 'circle', x: S.party.x, y: S.party.y, r: r / S.kmPerPx, reveal: true });
+  if (S.enemy.enabled) {
+    const before = S.enemies.filter(e => e.seen).length;
+    sim.playerSpot([S.party], r, 1, 'scout');
+    const found = S.enemies.filter(e => e.seen).length - before;
+    toast(found ? `Разведка: найдено отрядов — ${found}` : 'Разведка: никого');
+    if (S.scoutCostsTurn) worldTurn();
+  } else toast(`Разведка: открыт круг ${r * 2} км`);
+  commit();
+}
+
+// Отряд стоит, мир ходит
+function waitTurn() {
+  snapshotEnemies();
+  S.trail.push({ x: S.party.x, y: S.party.y, km: 0, wait: true });
+  S.turn++;
+  worldTurn();
+  commit();
 }
 
 function moveTo(x, y, counted) {
@@ -159,6 +228,9 @@ function undo() {
   if (!last.jump) { S.turn = Math.max(0, S.turn - 1); S.totalKm = Math.max(0, S.totalKm - last.km); }
   const p = S.trail[S.trail.length - 1];
   S.party = { x: p.x, y: p.y };
+  // противники возвращаются туда, где были до этого хода
+  const snap = S.enemyUndo[S.enemyUndo.length - 1];
+  if (snap && snap.len === S.trail.length) { S.enemies = snap.enemies; S.enemyUndo.pop(); }
   commit();
   toast('Ход отменён (открытый туман остаётся)');
 }
@@ -235,6 +307,26 @@ const tools = {
     up() { setTimeout(() => { ruler = null; sendRuler(); viewer.invalidate(); }, 2500); },
   },
   ping: { cursor: 'pointer', down(p) { ping(p[0], p[1]); } },
+  enemy: {
+    cursor: 'cell',
+    down(p) {
+      const hit = hitEnemy(p);
+      if (hit) { this.drag = { e: hit, ox: hit.x - p[0], oy: hit.y - p[1] }; return; }
+      if (!S.enemy.enabled) { S.enemy.enabled = true; }
+      const e = sim.spawn({ x: p[0], y: p[1] });
+      if (!e) return toast('Здесь отряд поставить нельзя (вода)');
+      Object.assign(e, { x: p[0], y: p[1], pinned: true });
+      S.enemies.push(e);
+      enemyLog(`Мастер поставил отряд: ${e.name}`, 'info', e);
+      commit();
+    },
+    move(p) {
+      if (!this.drag) return;
+      this.drag.e.x = p[0] + this.drag.ox; this.drag.e.y = p[1] + this.drag.oy;
+      viewer.invalidate();
+    },
+    up() { if (this.drag) { this.drag = null; commit(); } },
+  },
 };
 
 function brushTool(reveal) {
@@ -295,6 +387,16 @@ function sendRuler() {
   bc.postMessage({ t: 'ruler', ruler: ruler && !ruler.live ? ruler : null });
 }
 
+function hitEnemy(p) {
+  const [px, py] = viewer.toScreen(p[0], p[1]);
+  for (let i = S.enemies.length - 1; i >= 0; i--) {
+    const e = S.enemies[i];
+    const [x, y] = viewer.toScreen(e.x, e.y);
+    if (Math.abs(px - x) < 14 && Math.abs(py - y) < 16) return e;
+  }
+  return null;
+}
+
 function hitWaypoint(p) {
   for (let i = S.waypoints.length - 1; i >= 0; i--) {
     const w = S.waypoints[i];
@@ -348,6 +450,7 @@ viewer.layers.push(
     },
   },
   waypointLayer(() => S.waypoints, { selectedId: () => selectedWp }),
+  enemyLayer(() => S),
   partyLayer(() => S),
   pings,
   {
@@ -477,6 +580,70 @@ function animateSeason(target) {
 }
 
 $('doStep').onclick = () => doStep();
+$('scout').onclick = scout;
+$('waitTurn').onclick = waitTurn;
+bindNum('scoutKm', 'scoutKm', { min: 0.5 });
+bindCheck('scoutCostsTurn', 'scoutCostsTurn');
+// настройки противников: id поля → [ключ, множитель (проценты)]
+const EN_FIELDS = {
+  enCount: ['count', 1], enRadius: ['radiusKm', 1], enVision: ['visionKm', 1], enStep: ['stepKm', 1],
+  enChaseMin: ['chaseMinKm', 1], enChaseMax: ['chaseMaxKm', 1], enScoutKm: ['scoutKm', 1], enScoutChance: ['scoutChance', 100],
+  enNoticeMin: ['noticeMin', 100], enNoticeMax: ['noticeMax', 100], enInterestMin: ['interestMin', 100], enInterestMax: ['interestMax', 100],
+  enPlayerNotice: ['playerNotice', 100], enTrack: ['trackKm', 1],
+};
+for (const [id, [key, mul]] of Object.entries(EN_FIELDS)) {
+  $(id).addEventListener('change', () => {
+    const v = parseFloat($(id).value);
+    if (!isFinite(v) || v < 0) { renderEnemies(); return; }
+    S.enemy[key] = v / mul;
+    if (key === 'count' || key === 'radiusKm') sim.populate();
+    commit();
+  });
+}
+$('enEnabled').addEventListener('change', () => {
+  S.enemy.enabled = $('enEnabled').checked;
+  if (S.enemy.enabled) { terrain.done.then(() => { sim.populate(); commit(); }); }
+  commit();
+});
+$('enShowVision').addEventListener('change', () => { S.enemy.showVision = $('enShowVision').checked; commit({ broadcast: false }); });
+$('enRespawn').onclick = () => {
+  if (!confirm('Заменить все отряды противников новыми?')) return;
+  S.enemies = S.enemies.filter(e => e.pinned);
+  sim.populate(); commit();
+};
+$('enAdd').onclick = () => {
+  const e = sim.spawn();
+  if (e) { S.enemies.push(e); enemyLog(`Появился отряд: ${e.name}`, 'info', e); commit(); }
+};
+function renderEnemies() {
+  const c = S.enemy;
+  $('enEnabled').checked = c.enabled;
+  $('enBox').classList.toggle('off', !c.enabled);
+  $('enShowVision').checked = c.showVision;
+  for (const [id, [key, mul]] of Object.entries(EN_FIELDS)) if (document.activeElement !== $(id)) $(id).value = Math.round(c[key] * mul * 100) / 100;
+  const list = $('enList');
+  list.innerHTML = '';
+  const sorted = [...S.enemies].sort((a, b) => distKm(S.party.x, S.party.y, a.x, a.y, 1) - distKm(S.party.x, S.party.y, b.x, b.y, 1));
+  for (const e of sorted) {
+    const km = distKm(S.party.x, S.party.y, e.x, e.y, S.kmPerPx);
+    const row = document.createElement('div');
+    row.className = 'en' + (e.seen ? ' seen' : '') + (e.chase ? ' chase' : '');
+    const st = [e.chase ? '⚔ преследует' : (e.ignore > 0 ? 'не интересуется' : 'бродит'), e.seen ? 'видят игроки' : '', e.pinned ? 'поставлен' : ''].filter(Boolean).join(' · ');
+    row.innerHTML = `<span class="ic">${esc(e.icon)}</span><span class="nm"><b>${esc(e.name)}</b><small>${fmtKm(km)} · ${st}</small></span>
+      <button title="Показать/скрыть игрокам">${e.seen ? '👁️' : '🙈'}</button>
+      <button title="Погоня вкл/выкл">${e.chase ? '🏃' : '💤'}</button>
+      <button title="Переименовать">✎</button>
+      <button title="Убрать">✕</button>`;
+    const [bSeen, bChase, bName, bDel] = row.querySelectorAll('button');
+    row.querySelector('.nm').onclick = () => viewer.animateTo(e.x, e.y, Math.max(viewer.scale, 2));
+    bSeen.onclick = () => { e.seen = !e.seen; commit(); };
+    bChase.onclick = () => { e.chase = !e.chase; e.ignore = 0; commit(); };
+    bName.onclick = () => { const n = prompt('Название отряда', e.name); if (n) { e.name = n.trim(); commit(); } };
+    bDel.onclick = () => { S.enemies = S.enemies.filter(x => x !== e); commit(); };
+    list.appendChild(row);
+  }
+  $('enLog').innerHTML = S.enemyLog.slice(0, 30).map(l => `<div class="${l.kind}">Ход ${l.t}: ${esc(l.msg)}</div>`).join('');
+}
 $('undo').onclick = undo;
 $('centerParty').onclick = () => viewer.animateTo(S.party.x, S.party.y, Math.max(viewer.scale, 0.8));
 $('resetCounter').onclick = () => { S.turn = 0; S.totalKm = 0; commit(); };
@@ -502,7 +669,7 @@ $('panelToggle').onclick = togglePanel;
 function togglePanel() { document.body.classList.toggle('panel-hidden'); }
 
 $('exportBtn').onclick = () => {
-  const data = { app: 'faerun-walker', exported: new Date().toISOString(), state: S, fog: fog.toDataURL() };
+  const data = { app: 'faerun-walker', exported: new Date().toISOString(), state: S, fog: fog.serialize() };
   const a = document.createElement('a');
   a.href = URL.createObjectURL(new Blob([JSON.stringify(data)], { type: 'application/json' }));
   a.download = `faerun-${new Date().toISOString().slice(0, 10)}.json`;
@@ -517,7 +684,9 @@ $('importFile').onchange = async () => {
     const data = JSON.parse(await f.text());
     if (data.app !== 'faerun-walker') throw new Error('не тот формат');
     S = { ...defaultState(), ...data.state };
-    if (data.fog) { await fog.load(data.fog); saveFogData(data.fog); }
+    if (!data.state.schema) S.visionKm = 3;
+    normalizeEnemies();
+    if (data.fog) { await fog.load(data.fog); saveFogData(fog.serialize()); }
     commit(); sendFull();
     viewer.animateTo(S.party.x, S.party.y, viewer.scale);
     toast('Кампания загружена');
@@ -528,9 +697,10 @@ $('resetAll').onclick = () => {
   if (!confirm('Сбросить ВСЁ: положение, след, метки, туман? Сначала можно сделать экспорт.')) return;
   clearAll();
   S = defaultState();
+  normalizeEnemies();
   fog.fill(false);
-  fog.stamp(S.party.x, S.party.y, S.visionKm / S.kmPerPx, true);
-  saveFogData(fog.toDataURL());
+  fog.apply({ k: 'circle', x: S.party.x, y: S.party.y, r: S.visionKm / S.kmPerPx, reveal: true });
+  saveFogData(fog.serialize());
   commit(); sendFull();
   viewer.animateTo(S.party.x, S.party.y, 0.6);
 };
@@ -556,6 +726,9 @@ function renderPanel() {
   $('fogGhost').value = S.fogGhost; $('fogGhostVal').textContent = Math.round(S.fogGhost * 100) + '%';
   viewer.fps = renderSettings(S, false).fps;
   $('labelLang').value = S.labelLang || 'en';
+  if (document.activeElement !== $('scoutKm')) $('scoutKm').value = S.scoutKm;
+  $('scoutCostsTurn').checked = S.scoutCostsTurn;
+  renderEnemies();
 }
 
 // ---------- энциклопедия ----------
@@ -742,7 +915,7 @@ setInterval(renderPlayerStatus, 5000);
 
 // ---------- клавиатура ----------
 const NUMPAD = { Numpad8: 0, Numpad9: 45, Numpad6: 90, Numpad3: 135, Numpad2: 180, Numpad1: 225, Numpad4: 270, Numpad7: 315 };
-const HOTKEYS = { KeyV: 'pan', KeyD: 'aim', KeyG: 'goto', KeyM: 'move', KeyW: 'waypoint', KeyR: 'reveal', KeyH: 'hide', KeyL: 'ruler', KeyP: 'ping' };
+const HOTKEYS = { KeyE: 'enemy', KeyV: 'pan', KeyD: 'aim', KeyG: 'goto', KeyM: 'move', KeyW: 'waypoint', KeyR: 'reveal', KeyH: 'hide', KeyL: 'ruler', KeyP: 'ping' };
 window.addEventListener('keydown', e => {
   if (isTyping(e) || dlg.open || $('placeDialog').open) return;
   if (e.code in NUMPAD) {
@@ -757,6 +930,8 @@ window.addEventListener('keydown', e => {
   if (e.code === 'Enter' || e.code === 'NumpadEnter') { e.preventDefault(); doStep(); return; }
   if (e.code === 'Tab') { e.preventDefault(); togglePanel(); return; }
   if (e.code === 'KeyC') { $('centerParty').click(); return; }
+  if (e.code === 'KeyS') { scout(); return; }
+  if (e.code === 'KeyZ') { waitTurn(); return; }
   if (e.code === 'Escape') { setTool('pan'); return; }
   if (HOTKEYS[e.code]) setTool(HOTKEYS[e.code]);
 });
@@ -774,14 +949,14 @@ function esc(s) { return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<'
 
 // Изменения из другой вкладки мастера (на всякий случай)
 window.addEventListener('storage', e => {
-  if (e.key === 'faerun-walker:state:v1' && e.newValue) { S = { ...defaultState(), ...JSON.parse(e.newValue) }; renderPanel(); viewer.invalidate(); }
+  if (e.key === 'faerun-walker:state:v1' && e.newValue) { S = { ...defaultState(), ...JSON.parse(e.newValue) }; normalizeEnemies(); renderPanel(); viewer.invalidate(); }
 });
 
 // ---------- старт ----------
 const fogData = loadFogData();
 if (!(await fog.load(fogData))) {
-  fog.stamp(S.party.x, S.party.y, S.visionKm / S.kmPerPx, true);
-  saveFogData(fog.toDataURL());
+  fog.apply({ k: 'circle', x: S.party.x, y: S.party.y, r: S.visionKm / S.kmPerPx, reveal: true });
+  saveFogData(fog.serialize());
 }
 setTool('pan');
 renderPanel();

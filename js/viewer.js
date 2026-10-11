@@ -25,7 +25,7 @@ export class Viewer {
     this.cx = this.W / 2;
     this.cy = this.H / 2;
     this.scale = 0.2;
-    this.maxScale = 6;
+    this.maxScale = 24;
     this.layers = [];          // (ctx, viewer) => void, рисуют в экранных координатах
     this.tool = null;          // { down, move, up, hover, leave, cursor }
     this.onViewChange = null;
