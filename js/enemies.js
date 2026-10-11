@@ -2,7 +2,7 @@
 // (обзором или разведкой), могут заинтересоваться и пойти на перехват.
 // Симуляция идёт на экране мастера; игроки видят только тех, кого их отряд заметил.
 
-import { uid } from './state.js?v=61c03b0e';
+import { uid } from './state.js?v=d2c53c69';
 
 export const ENEMY_TYPES = [
   { name: 'Бандиты', icon: '🗡️' }, { name: 'Орки', icon: '🪓' }, { name: 'Гоблины', icon: '👺' },
@@ -78,14 +78,15 @@ export class EnemySim {
     const S = this.c.S(), cfg = this.cfg, P = near || S.party;
     for (let k = 0; k < 40; k++) {
       const a = Math.random() * Math.PI * 2;
-      const d = Math.sqrt(rnd((cfg.spawnMinKm / cfg.radiusKm) ** 2, 1)) * cfg.radiusKm;
+      const R = Math.max(1, cfg.radiusKm), m = Math.min(cfg.spawnMinKm, R * 0.5);
+      const d = Math.sqrt(rnd((m / R) ** 2, 1)) * R;
       const x = P.x + Math.cos(a) * this.px(d), y = P.y + Math.sin(a) * this.px(d);
       if (this.c.terrain.blocked(x, y)) continue;
       const t = ENEMY_TYPES[Math.floor(Math.random() * ENEMY_TYPES.length)];
       return {
         id: uid(), name: t.name, icon: t.icon, x, y,
         heading: Math.random() * 360, chase: false, seen: false, ignore: 0,
-        notice: rnd(cfg.noticeMin, cfg.noticeMax), interest: rnd(cfg.interestMin, cfg.interestMax),
+        nq: Math.random(), iq: Math.random(),  // место отряда внутри пределов шансов (пределы можно менять)
       };
     }
     return null;
@@ -134,6 +135,24 @@ export class EnemySim {
     return 0;
   }
 
+  noticeOf(e) { const c = this.cfg; return c.noticeMin + (e.nq ?? 0.5) * (c.noticeMax - c.noticeMin); }
+  interestOf(e) { const c = this.cfg; return c.interestMin + (e.iq ?? 0.5) * (c.interestMax - c.interestMin); }
+
+  // Противник в точке (x, y), если там не вода
+  makeAt(x, y, extra = {}) {
+    if (this.c.terrain.blocked(x, y)) return null;
+    const t = ENEMY_TYPES[Math.floor(Math.random() * ENEMY_TYPES.length)];
+    return { id: uid(), name: t.name, icon: t.icon, x, y, heading: Math.random() * 360, chase: false, seen: false,
+      ignore: 0, nq: Math.random(), iq: Math.random(), ...extra };
+  }
+
+  // Свободен ли путь по прямой (проверка каждые ~1 км)
+  clearPath(a, b) {
+    const km = this.km(a, b), n = Math.max(1, Math.ceil(km));
+    for (let i = 1; i <= n; i++) if (this.c.terrain.blocked(a.x + (b.x - a.x) * i / n, a.y + (b.y - a.y) * i / n)) return false;
+    return true;
+  }
+
   bearingTo(e, p) { return (Math.atan2(p.x - e.x, -(p.y - e.y)) * 180 / Math.PI + 360) % 360; }
 
   // Противник замечает отряд (обзором или разведкой) и решает, интересно ли
@@ -141,7 +160,7 @@ export class EnemySim {
     const S = this.c.S();
     if (e.chase) return;
     if (e.ignore > 0) return;
-    if (Math.random() >= e.interest) {
+    if (Math.random() >= this.interestOf(e)) {
       e.ignore = 3;  // заметил, но не заинтересовался — какое-то время не обращает внимания
       this.c.log(`${e.name} заметили отряд, но не заинтересовались`, 'info', e);
       return;
@@ -160,7 +179,7 @@ export class EnemySim {
       // восприятие до движения
       if (!e.chase) {
         const d = this.km(e, P);
-        if (d <= cfg.visionKm && Math.random() < e.notice) this.perceive(e, 'sight');
+        if (d <= cfg.visionKm && Math.random() < this.noticeOf(e)) this.perceive(e, 'sight');
         else if (Math.random() < cfg.scoutChance) {
           e.scoutedAt = S.turn;
           if (d <= cfg.scoutKm) this.perceive(e, 'scout');
@@ -169,10 +188,11 @@ export class EnemySim {
       if (e.chase) {
         const d = this.km(e, P);
         const step = rnd(cfg.chaseMinKm, cfg.chaseMaxKm);
-        if (step >= d - 0.5) {
+        const a = Math.atan2(e.x - P.x, e.y - P.y);
+        const spot = { x: P.x + Math.sin(a) * this.px(0.4), y: P.y + Math.cos(a) * this.px(0.4) };
+        if (step >= d - 0.5 && !this.c.terrain.blocked(spot.x, spot.y) && this.clearPath(e, spot)) {
           // догнали: встаём вплотную
-          const a = Math.atan2(e.x - P.x, e.y - P.y);
-          e.x = P.x + Math.sin(a) * this.px(0.4); e.y = P.y + Math.cos(a) * this.px(0.4);
+          e.x = spot.x; e.y = spot.y;
           if (!e.contact) this.c.log(`${e.name} настигли отряд!`, 'alarm', e);
           if (!e.seen) { e.seen = true; this.c.spotted(e, 'contact'); }
           e.contact = true;
@@ -189,15 +209,19 @@ export class EnemySim {
 
   // Игроки замечают противников: точки пути с обзором visionKm (с шансом) или разведка (гарантированно)
   playerSpot(path, radiusKm, chance, how) {
-    const S = this.c.S();
+    const S = this.c.S(), end = path[path.length - 1];
     for (const e of S.enemies) {
       if (e.seen) continue;
+      if (this.km(e, end) > this.cfg.trackKm) continue;          // всё равно сразу потеряли бы из виду
+      if (how === 'sight' && e.rolledTurn === S.turn) continue;  // уже бросали в этот ход
+      if (how === 'sight') e.rolledTurn = S.turn;
       let d = Infinity;
       for (let i = 0; i < path.length; i++) {
         const a = path[i], b = path[i + 1] || a;
         d = Math.min(d, segKm(e, a, b, S.kmPerPx));
       }
-      if (d <= radiusKm && Math.random() < chance) {
+      if (d > radiusKm) { if (how === 'sight') e.rolledTurn = -1; continue; }
+      if (Math.random() < chance) {
         e.seen = true;
         this.c.spotted(e, how);
       }

@@ -1,15 +1,15 @@
 // Экран мастера.
-import { Viewer, loadInfo, isTyping } from './viewer.js?v=61c03b0e';
-import { Fog } from './fog.js?v=61c03b0e';
+import { Viewer, loadInfo, isTyping } from './viewer.js?v=d2c53c69';
+import { Fog } from './fog.js?v=d2c53c69';
 import {
   loadState, saveState, loadFogData, saveFogData, loadView, saveView, clearAll, channel,
   stepPoint, bearingTo, distKm, rumb, fmtKm, uid, defaultState,
-} from './state.js?v=61c03b0e';
-import { trailLayer, waypointLayer, partyLayer, pingLayer, drawRuler, scaleBarLayer, settlementLayer } from './layers.js?v=61c03b0e';
-import { EnemySim, Terrain, enemyLayer, defaultEnemyConfig } from './enemies.js?v=61c03b0e';
-import { MapRenderer } from './gl.js?v=61c03b0e';
-import { Places, placeLabelLayer, KIND_NAMES, wikiSummary, wikiUrl } from './places.js?v=61c03b0e';
-import { renderSettings } from './state.js?v=61c03b0e';
+} from './state.js?v=d2c53c69';
+import { trailLayer, waypointLayer, partyLayer, pingLayer, drawRuler, scaleBarLayer, settlementLayer } from './layers.js?v=d2c53c69';
+import { EnemySim, Terrain, enemyLayer, defaultEnemyConfig } from './enemies.js?v=d2c53c69';
+import { MapRenderer } from './gl.js?v=d2c53c69';
+import { Places, placeLabelLayer, KIND_NAMES, wikiSummary, wikiUrl } from './places.js?v=d2c53c69';
+import { renderSettings } from './state.js?v=d2c53c69';
 
 const $ = id => document.getElementById(id);
 const ICONS = ['★', '🏰', '🏘️', '⛺', '⚔️', '💀', '🐉', '🗝️', '💰', '❓', '❗', '⛪', '🌲', '⛰️', '🕳️', '⚓', '🔥', '👁️'];
@@ -219,6 +219,7 @@ function moveTo(x, y, counted) {
     else fogOp({ k: 'circle', x, y, r, reveal: true });
   }
   S.party = { x, y };
+  if (S.enemy.enabled) { sim.track(); sim.populate(); }
   commit();
 }
 
@@ -230,7 +231,7 @@ function undo() {
   S.party = { x: p.x, y: p.y };
   // противники возвращаются туда, где были до этого хода
   const snap = S.enemyUndo[S.enemyUndo.length - 1];
-  if (snap && snap.len === S.trail.length) { S.enemies = snap.enemies; S.enemyUndo.pop(); }
+  if (!last.jump && snap && snap.len === S.trail.length) { S.enemies = snap.enemies; S.enemyUndo.pop(); }
   commit();
   toast('Ход отменён (открытый туман остаётся)');
 }
@@ -278,7 +279,10 @@ const tools = {
       if (S.autoReveal) fogOp({ k: 'circle', x: p[0], y: p[1], r: S.visionKm / S.kmPerPx, reveal: true });
       commit();
     },
-    up() { this.on = false; },
+    up() {
+      if (this.on && S.enemy.enabled) { sim.track(); sim.populate(); commit(); }
+      this.on = false;
+    },
   },
   waypoint: {
     cursor: 'cell',
@@ -312,10 +316,9 @@ const tools = {
     down(p) {
       const hit = hitEnemy(p);
       if (hit) { this.drag = { e: hit, ox: hit.x - p[0], oy: hit.y - p[1] }; return; }
-      if (!S.enemy.enabled) { S.enemy.enabled = true; }
-      const e = sim.spawn({ x: p[0], y: p[1] });
+      const e = sim.makeAt(p[0], p[1], { pinned: true });
       if (!e) return toast('Здесь отряд поставить нельзя (вода)');
-      Object.assign(e, { x: p[0], y: p[1], pinned: true });
+      if (!S.enemy.enabled) S.enemy.enabled = true;
       S.enemies.push(e);
       enemyLog(`Мастер поставил отряд: ${e.name}`, 'info', e);
       commit();
@@ -593,9 +596,18 @@ const EN_FIELDS = {
 };
 for (const [id, [key, mul]] of Object.entries(EN_FIELDS)) {
   $(id).addEventListener('change', () => {
-    const v = parseFloat($(id).value);
-    if (!isFinite(v) || v < 0) { renderEnemies(); return; }
+    let v = parseFloat($(id).value);
+    if (!isFinite(v) || v < 0) { $(id).value = Math.round(S.enemy[key] * mul * 100) / 100; return; }
+    if (mul === 100) v = Math.min(100, v);
+    if (key === 'count') v = Math.min(60, Math.round(v));
+    if (key === 'radiusKm') v = Math.max(20, v);
+    if (key.endsWith('Km') && key !== 'radiusKm') v = Math.max(0.5, v);
     S.enemy[key] = v / mul;
+    // пределы «от/до» не должны перекрещиваться
+    for (const [a, b] of [['noticeMin', 'noticeMax'], ['interestMin', 'interestMax'], ['chaseMinKm', 'chaseMaxKm']]) {
+      if (S.enemy[a] > S.enemy[b]) { if (key === a) S.enemy[b] = S.enemy[a]; else S.enemy[a] = S.enemy[b]; }
+    }
+    $(id).value = Math.round(S.enemy[key] * mul * 100) / 100;
     if (key === 'count' || key === 'radiusKm') sim.populate();
     commit();
   });
@@ -612,8 +624,14 @@ $('enRespawn').onclick = () => {
   sim.populate(); commit();
 };
 $('enAdd').onclick = () => {
-  const e = sim.spawn();
-  if (e) { S.enemies.push(e); enemyLog(`Появился отряд: ${e.name}`, 'info', e); commit(); }
+  // рядом: за пределами обзора отряда, но в круге сопровождения
+  const lo = Math.max(S.visionKm * 1.5, 4), hi = Math.max(lo + 1, S.enemy.trackKm);
+  for (let k = 0; k < 40; k++) {
+    const a = Math.random() * Math.PI * 2, d = (lo + Math.random() * (hi - lo)) / S.kmPerPx;
+    const e = sim.makeAt(S.party.x + Math.cos(a) * d, S.party.y + Math.sin(a) * d, { pinned: true });
+    if (e) { S.enemies.push(e); enemyLog(`Появился отряд: ${e.name}`, 'info', e); commit(); return; }
+  }
+  toast('Не нашлось места на суше рядом с отрядом');
 };
 function renderEnemies() {
   const c = S.enemy;
@@ -649,7 +667,7 @@ $('centerParty').onclick = () => viewer.animateTo(S.party.x, S.party.y, Math.max
 $('resetCounter').onclick = () => { S.turn = 0; S.totalKm = 0; commit(); };
 $('clearTrail').onclick = () => {
   if (!confirm('Стереть весь след отряда?')) return;
-  S.trail = [{ x: S.party.x, y: S.party.y, km: 0 }]; commit();
+  S.trail = [{ x: S.party.x, y: S.party.y, km: 0 }]; S.enemyUndo = []; commit();
 };
 $('revealAll').onclick = () => { if (confirm('Открыть игрокам всю карту?')) fogOp({ k: 'all', reveal: true }); };
 $('hideAll').onclick = () => {
