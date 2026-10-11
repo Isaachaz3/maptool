@@ -566,19 +566,43 @@ void main() {
   // ---------- туман войны ----------
   if (uFogOn > 0.5) {
     float fm = ins ? texture(uFog, uv).a : 1.0;
-    float fe = smoothstep(0.35, 0.7, fm + (fbm(p * 0.04 + uTime * 0.02, 4, uScale / 0.04) - 0.5) * 0.5);
+    // уровень детализации по зуму: клубы всегда ~одного экранного размера,
+    // два соседних уровня смешиваются, поэтому при приближении туман не «расплывается»
+    float lz = log2(uScale);
+    float l0 = floor(lz), lf = lz - l0;
+    float wA = 1.0 - lf;
+    vec2 dr = vec2(uTime * 0.9, uTime * 0.35);
+    float fA = 0.006 * exp2(l0), fB = fA * 2.0;
+    // край: рваный, мелко-зернистый в экранных пикселях
+    float eA = fbm((p + dr * 0.4) * fA * 6.0, 4, 6.0), eB = fbm((p + dr * 0.4) * fB * 6.0 + 7.1, 4, 6.0);
+    float edgeN = mix(eB, eA, wA);
+    float fe = smoothstep(0.38, 0.62, fm + (edgeN - 0.5) * 0.55);
     if (fe > 0.0) {
+      // клубы
+      vec2 qA = (p + dr) * fA, qB = (p + dr) * fB + 13.7;
+      vec2 wqA = qA + vec2(fbm(qA * 0.7, 3, 8.0), fbm(qA * 0.7 + 4.3, 3, 8.0)) * 1.4;
+      vec2 wqB = qB + vec2(fbm(qB * 0.7, 3, 8.0), fbm(qB * 0.7 + 4.3, 3, 8.0)) * 1.4;
+      float cA = fbm(wqA, 5, 8.0), cB = fbm(wqB, 5, 8.0);
+      float cl = mix(cB, cA, wA);
+      // объём: подсветка сверху-слева по градиенту плотности
+      float cA2 = fbm(wqA + vec2(0.06, 0.06), 5, 8.0), cB2 = fbm(wqB + vec2(0.06, 0.06), 5, 8.0);
+      float lit = clamp((cl - mix(cB2, cA2, wA)) * 3.5 + 0.55, 0.0, 1.0);
+      // пухлые края клубов: мелкая «кучевая» рябь по контуру
+      float puff = mix(fbm(wqB * 4.0 + 2.0, 3, 32.0), fbm(wqA * 4.0 + 2.0, 3, 32.0), wA);
+      float dens = smoothstep(0.45, 0.62, cl + (puff - 0.5) * 0.22);
+      // самые плотные места — глубже в тени, края светлее
+      float core = smoothstep(0.56, 0.75, cl);
+      vec3 dark = vec3(0.085, 0.08, 0.075);
+      vec3 cloudC = mix(vec3(0.32, 0.31, 0.3), vec3(0.62, 0.6, 0.57), lit) * (1.0 - 0.2 * core);
+      // тень облака на тёмной подложке
+      float shadow = mix(smoothstep(0.46, 0.56, mix(fbm(wqB - 0.08, 5, 8.0), fbm(wqA - 0.08, 5, 8.0), wA)), 0.0, dens);
+      vec3 hidden = mix(dark * (1.0 - 0.3 * shadow), cloudC, dens * 0.82);
+      // сквозь просветы чуть угадывается местность
       float g = dot(col, vec3(0.3, 0.59, 0.11));
-      vec3 ghost = vec3(g * 1.02, g * 0.97, g * 0.88) * 0.62;
-      vec2 mq = p * 0.0025 + vec2(uTime * 0.006, uTime * 0.002);
-      float mpx = uScale / 0.0025;
-      float m1 = fbm(mq + vec2(fbm(mq * 1.7, 3, mpx * 1.7), fbm(mq * 1.7 + 3.3, 3, mpx * 1.7)) * 0.9, 4, mpx);
-      float m2 = fbm(p * 0.008 - vec2(uTime * 0.02, uTime * 0.006), 3, uScale / 0.008);
-      float mist = clamp(m1 * 0.9 + m2 * 0.3 - 0.12, 0.0, 1.0);
-      vec3 mistCol = mix(vec3(0.46, 0.48, 0.5), vec3(0.86, 0.86, 0.87), smoothstep(0.25, 0.7, mist));
-      float cover = clamp(0.62 + mist * 0.5 - uFogGhost * 0.6, 0.0, 1.0);
-      vec3 hidden = mix(ghost, mistCol, cover);
-      col *= 1.0 - 0.3 * fe * (1.0 - fe) * 4.0 * uFogStrength;
+      hidden = mix(hidden, vec3(g * 0.55, g * 0.5, g * 0.42), uFogGhost * (1.0 - dens) * 0.8);
+      // тлеющая тёмно-тёплая кромка
+      float rim = fe * (1.0 - fe) * 4.0;
+      col = mix(col, col * vec3(0.55, 0.45, 0.35), rim * 0.6 * uFogStrength);
       col = mix(col, hidden, fe * uFogStrength);
     }
   }

@@ -1,11 +1,11 @@
 // Экран игроков: только то, что открыл мастер.
-import { Viewer, loadInfo } from './viewer.js?v=83fcac86';
-import { Fog } from './fog.js?v=83fcac86';
-import { loadState, loadFogData, loadView, saveView, channel, defaultState } from './state.js?v=83fcac86';
-import { trailLayer, waypointLayer, partyLayer, pingLayer, drawRuler, scaleBarLayer, settlementLayer } from './layers.js?v=83fcac86';
-import { MapRenderer } from './gl.js?v=83fcac86';
-import { Places, placeLabelLayer } from './places.js?v=83fcac86';
-import { renderSettings } from './state.js?v=83fcac86';
+import { Viewer, loadInfo } from './viewer.js?v=8999e50b';
+import { Fog } from './fog.js?v=8999e50b';
+import { loadState, loadFogData, loadView, saveView, channel, defaultState } from './state.js?v=8999e50b';
+import { trailLayer, waypointLayer, partyLayer, pingLayer, drawRuler, scaleBarLayer, settlementLayer } from './layers.js?v=8999e50b';
+import { MapRenderer } from './gl.js?v=8999e50b';
+import { Places, placeLabelLayer } from './places.js?v=8999e50b';
+import { renderSettings } from './state.js?v=8999e50b';
 
 const $ = id => document.getElementById(id);
 const info = await loadInfo();
