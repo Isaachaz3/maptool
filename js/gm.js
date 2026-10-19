@@ -1,15 +1,15 @@
 // Экран мастера.
-import { Viewer, loadInfo, isTyping } from './viewer.js?v=d2c53c69';
-import { Fog } from './fog.js?v=d2c53c69';
+import { Viewer, loadInfo, isTyping } from './viewer.js?v=b9bdb967';
+import { Fog } from './fog.js?v=b9bdb967';
 import {
   loadState, saveState, loadFogData, saveFogData, loadView, saveView, clearAll, channel,
   stepPoint, bearingTo, distKm, rumb, fmtKm, uid, defaultState,
-} from './state.js?v=d2c53c69';
-import { trailLayer, waypointLayer, partyLayer, pingLayer, drawRuler, scaleBarLayer, settlementLayer } from './layers.js?v=d2c53c69';
-import { EnemySim, Terrain, enemyLayer, defaultEnemyConfig } from './enemies.js?v=d2c53c69';
-import { MapRenderer } from './gl.js?v=d2c53c69';
-import { Places, placeLabelLayer, KIND_NAMES, wikiSummary, wikiUrl } from './places.js?v=d2c53c69';
-import { renderSettings } from './state.js?v=d2c53c69';
+} from './state.js?v=b9bdb967';
+import { trailLayer, waypointLayer, partyLayer, pingLayer, drawRuler, scaleBarLayer, settlementLayer } from './layers.js?v=b9bdb967';
+import { EnemySim, Terrain, enemyLayer, defaultEnemyConfig } from './enemies.js?v=b9bdb967';
+import { MapRenderer } from './gl.js?v=b9bdb967';
+import { Places, placeLabelLayer, KIND_NAMES, wikiSummary, wikiUrl } from './places.js?v=b9bdb967';
+import { renderSettings } from './state.js?v=b9bdb967';
 
 const $ = id => document.getElementById(id);
 const ICONS = ['★', '🏰', '🏘️', '⛺', '⚔️', '💀', '🐉', '🗝️', '💰', '❓', '❗', '⛪', '🌲', '⛰️', '🕳️', '⚓', '🔥', '👁️'];
@@ -563,6 +563,7 @@ bindCheck('animate', 'animate');
 bindCheck('showSettlements', 'showSettlements');
 bindCheck('showLabels', 'showLabels');
 $('quality').addEventListener('change', () => { S.quality = $('quality').value; commit(); });
+$('playerQuality').addEventListener('change', () => { S.playerQuality = $('playerQuality').value; commit(); });
 $('fogGhost').addEventListener('input', () => { S.fogGhost = +$('fogGhost').value; commit(); });
 // плавная смена сезона вперёд по кругу
 let seasonAnim = null;
@@ -741,6 +742,7 @@ function renderPanel() {
   if (document.activeElement !== $('season')) $('season').value = S.season;
   for (const k of ['clouds', 'animate', 'showSettlements', 'showLabels']) $(k).checked = S[k];
   $('quality').value = S.quality;
+  $('playerQuality').value = S.playerQuality || 'high';
   $('fogGhost').value = S.fogGhost; $('fogGhostVal').textContent = Math.round(S.fogGhost * 100) + '%';
   viewer.fps = renderSettings(S, false).fps;
   $('labelLang').value = S.labelLang || 'en';

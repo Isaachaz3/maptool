@@ -110,7 +110,7 @@ export class Viewer {
     if (!t) {
       const img = new Image();
       t = { img, ok: false, used: this.frame, l };
-      img.onload = () => { t.ok = true; this.invalidate(); };
+      img.onload = () => { t.ok = true; this.tilesLoaded = (this.tilesLoaded || 0) + 1; this.invalidate(); };
       img.onerror = () => { t.err = true; };
       img.src = `${this.base}${key}.jpg`;
       this.cache.set(key, t);

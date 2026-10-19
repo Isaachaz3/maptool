@@ -4,8 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Ходилка по Фаэруну — мастер</title>
-<link rel="stylesheet" href="assets/fonts.css?v=d2c53c69">
-<link rel="stylesheet" href="css/style.css?v=d2c53c69">
+<link rel="stylesheet" href="assets/fonts.css?v=b9bdb967">
+<link rel="stylesheet" href="css/style.css?v=b9bdb967">
 </head>
 <body class="gm">
 <canvas id="gl"></canvas>
@@ -75,8 +75,15 @@
     <label class="check"><input type="checkbox" id="animate"> Анимация (облака, туман)</label>
     <label class="check"><input type="checkbox" id="showSettlements"> Значки поселений</label>
     <label class="check"><input type="checkbox" id="showLabels"> Названия (при приближении)</label>
-    <label>Качество
+    <label>Качество — мой экран
       <select id="quality">
+        <option value="high">Высокое (60 к/с, чёткость экрана)</option>
+        <option value="medium">Среднее (30 к/с)</option>
+        <option value="low">Низкое (слабая видеокарта)</option>
+      </select>
+    </label>
+    <label>Качество — экран игроков
+      <select id="playerQuality">
         <option value="high">Высокое (60 к/с, чёткость экрана)</option>
         <option value="medium">Среднее (30 к/с)</option>
         <option value="low">Низкое (слабая видеокарта)</option>
@@ -238,6 +245,6 @@
   window.addEventListener('unhandledrejection', function (e) { __bootErr(String(e.reason && e.reason.message || e.reason)); });
   setTimeout(function () { if (!window.__appStarted) __bootErr('Приложение не запустилось. Обновите страницу с очисткой кэша (Ctrl+F5). Если не поможет — пришлите этот текст.'); }, 8000);
 </script>
-<script type="module" src="js/gm.js?v=d2c53c69"></script>
+<script type="module" src="js/gm.js?v=b9bdb967"></script>
 </body>
 </html>

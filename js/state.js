@@ -37,7 +37,8 @@ export function defaultState() {
     clouds: true,
     animate: true,
     fogGhost: 0.2,          // насколько сквозь туман видна местность
-    quality: 'medium',      // high | medium | low
+    quality: 'medium',      // качество экрана мастера: high | medium | low
+    playerQuality: 'high',  // качество экрана игроков
     showSettlements: true,
     labelLang: 'en',        // язык подписей: en | ru
     placeEdits: {},         // правки мастера к местам энциклопедии: id → поля
@@ -122,17 +123,17 @@ export function fmtKm(km) {
 export function uid() { return Math.random().toString(36).slice(2, 10); }
 
 export const QUALITY = {
-  high: { resScale: 2, fps: 60, detail: 1 },
-  medium: { resScale: 1, fps: 30, detail: 1 },
-  low: { resScale: 0.6, fps: 20, detail: 0 },
+  high: { resScale: 2, fps: 60, detail: 1, overScale: 0.5 },
+  medium: { resScale: 1, fps: 30, detail: 1, overScale: 0.5 },
+  low: { resScale: 0.6, fps: 20, detail: 0, overScale: 0.25 },
 };
 
 // Настройки WebGL-рендера из состояния кампании
 export function renderSettings(S, isPlayer) {
-  const q = QUALITY[S.quality] || QUALITY.medium;
+  const q = QUALITY[isPlayer ? S.playerQuality : S.quality] || QUALITY.medium;
   return {
     styleMix: S.styleMix, labels: S.showLabels, season: S.season, clouds: S.clouds, animate: S.animate,
     fogOn: S.fogEnabled, fogStrength: isPlayer ? 1 : S.gmFogOpacity, fogGhost: S.fogGhost,
-    resScale: q.resScale, detail: q.detail, fps: q.fps,
+    resScale: q.resScale, detail: q.detail, fps: q.fps, overScale: q.overScale,
   };
 }

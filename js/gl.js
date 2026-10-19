@@ -215,8 +215,10 @@ precision highp float;
 precision highp int;
 in vec2 vMap;
 in vec2 vScr;
-out vec4 o;
-uniform sampler2D uT0, uT1, uT2, uT3, uFog, uBase, uRoads, uRivers;
+layout(location = 0) out vec4 o;
+layout(location = 1) out vec4 o2;
+uniform sampler2D uT0, uT1, uT2, uT3, uFog, uBase, uRoads, uRivers, uTerrain, uOver0, uOver1;
+uniform int uPass;
 uniform vec2 uMap;
 uniform float uScale, uTime, uSeason, uMix, uLines;
 uniform float uFogOn, uFogStrength, uFogGhost, uClouds, uDetail;
@@ -424,6 +426,11 @@ void main() {
   SW = vec4(max(0.0, 1.0 - min(s, 4.0 - s)), max(0.0, 1.0 - abs(s - 1.0)), max(0.0, 1.0 - abs(s - 2.0)), max(0.0, 1.0 - abs(s - 3.0)));
   SW /= (SW.x + SW.y + SW.z + SW.w);
 
+  vec3 col;
+  if (uPass >= 1) {
+    // местность уже посчитана и лежит в кэше (в проходе 2 не нужна)
+    col = uPass == 1 ? texture(uTerrain, vScr).rgb : vec3(0.0);
+  } else {
   bool ins = inside(p);
   vec2 uv = p / uMap;
   vec3 t0 = T0(p), t1 = T1(p);
@@ -456,7 +463,7 @@ void main() {
   float snow = smoothstep(-0.02, 0.03, snowLine - lat + (fbm(p * 0.01, 4, uScale / 0.01) - 0.5) * 0.14);
   snow = max(snow, smoothstep(-aa, aa, sI));
 
-  vec3 col = vec3(0.0);
+  col = vec3(0.0);
   vec3 painted = vec3(0.0), orig = vec3(0.0);
 
   if (uMix > 0.001) {
@@ -619,23 +626,53 @@ void main() {
   }
 
   col = mix(painted, orig, uMix);
+  o = vec4(col, 1.0);
+  return;
+  }
 
-  // ---------- облака и их тени ----------
-  // Издалека — как раньше (крупные, редкие). Вблизи уровни детализации растут вместе с зумом,
-  // поэтому облака мельче и чаще и остаются на экране. Соседние уровни плавно перетекают.
+  // ---------- облака и клубы тумана: считаются в пониженном разрешении (проход 2) ----------
+  if (uPass == 2) {
+    vec4 w = vec4(0.0, 0.0, 0.5, 0.5);
+    if (uClouds > 0.5) {
+      // Издалека — крупные редкие облака; вблизи уровни растут с зумом: мельче и чаще
+      vec2 wind = vec2(1.0, 0.3) * uTime * 0.4;
+      float cov = seasf(0.64, 0.67, 0.63, 0.62);
+      float lzc = max(0.0, log2(uScale / 0.5) * 0.8);
+      float l0 = floor(lzc), lf = lzc - l0;
+      lf = lf * lf * (3.0 - 2.0 * lf);
+      w.xy = mix(weatherCloud(p, l0, wind, cov), weatherCloud(p, l0 + 1.0, wind, cov), lf);
+    }
+    vec4 fc = vec4(0.0, 0.0, 0.0, 1.0);  // клубы тумана: hidden = основа * a + rgb
+    if (uFogOn > 0.5) {
+      float lz = log2(uScale);
+      w.w = fogLod(p, lz + 2.5, vec2(uTime * 0.4, uTime * 0.15), 7.0).x;
+      w.z = fogLod(p, lz - 1.0, vec2(uTime * 0.3, -uTime * 0.2), 3.0).x;
+      // три слоя: крупный на восток, средний на северо-запад, мелкий на юг
+      vec2 dirs[3] = vec2[3](vec2(1.6, 0.4), vec2(-1.1, -0.9), vec2(0.3, 1.4));
+      float bias[3] = float[3](-0.6, 0.2, 1.0);
+      float wgt = mix(0.85, 0.45, uFogGhost);
+      for (int k = 0; k < 3; k++) {
+        if (uDetail < 0.5 && k != 1) continue;
+        vec2 cl = fogLod(p, lz + bias[k], dirs[k] * uTime, 11.0 + float(k) * 17.0);
+        float dens = smoothstep(0.46, 0.64, cl.x);
+        float shade = 1.0 - 0.18 * dens;          // тень слоя на том, что под ним
+        vec3 cc = mix(vec3(0.42, 0.42, 0.43), vec3(0.8, 0.79, 0.76), cl.y) * (0.92 + 0.05 * float(k));
+        float dw = dens * wgt;
+        fc.a *= shade * (1.0 - dw);
+        fc.rgb = fc.rgb * shade * (1.0 - dw) + cc * dw;
+      }
+    }
+    o = w;
+    o2 = fc;
+    return;
+  }
+
+  vec4 W = texture(uOver0, vScr), FC = texture(uOver1, vScr);
   if (uClouds > 0.5) {
-    vec2 wind = vec2(1.0, 0.3) * uTime * 0.4;
-    float cov = seasf(0.64, 0.67, 0.63, 0.62);
-    float lzc = max(0.0, log2(uScale / 0.5) * 0.8);
-    float l0 = floor(lzc), lf = lzc - l0;
-    lf = lf * lf * (3.0 - 2.0 * lf);
-    vec2 cA = weatherCloud(p, l0, wind, cov), cB = weatherCloud(p, l0 + 1.0, wind, cov);
-    vec2 cl2 = mix(cA, cB, lf);       // (облако, тень)
-    // вблизи облака реже и прозрачнее, чтобы не закрывать игру
     float near = smoothstep(1.0, 6.0, uScale);
-    col *= 1.0 - 0.35 * cl2.y * (1.0 - 0.3 * near);
-    vec3 cloudCol = mix(vec3(0.66, 0.68, 0.7), vec3(0.97, 0.97, 0.98), smoothstep(0.0, 1.0, cl2.x));
-    col = mix(col, cloudCol, cl2.x * mix(0.92, 0.72, near));
+    col *= 1.0 - 0.35 * W.y * (1.0 - 0.3 * near);
+    vec3 cloudCol = mix(vec3(0.66, 0.68, 0.7), vec3(0.97, 0.97, 0.98), smoothstep(0.0, 1.0, W.x));
+    col = mix(col, cloudCol, W.x * mix(0.92, 0.72, near));
   }
 
   // ---------- солнце сверху: тёплый свет, лёгкие лучи, верх светлее низа ----------
@@ -647,37 +684,22 @@ void main() {
     float rays = 0.5 + 0.5 * sin(ang * 23.0 + uTime * 0.05) * sin(ang * 9.0 - uTime * 0.03);
     float glow = exp(-d * d * 1.6);
     vec3 sunC = vec3(1.0, 0.85, 0.58) * (0.13 * glow + 0.05 * glow * rays);
-    // на светлой карте-картинке свет — тёплый оттенок (умножение), на рисованной — добавка
     col = mix(col + sunC, col * (1.0 + sunC * vec3(0.6, 0.35, -0.2)), uMix);
     col *= mix(mix(1.05, 0.92, smoothstep(0.0, 1.0, vScr.y)), mix(1.0, 0.9, smoothstep(0.0, 1.0, vScr.y)), uMix);
     col *= vec3(1.02, 1.0, 0.96);
   }
 
-  // ---------- туман войны: дымка и несколько слоёв облаков, плывущих в разные стороны ----------
+  // ---------- туман войны ----------
   if (uFogOn > 0.5) {
     float fm = texture(uFog, vScr).r;
-    float lz = log2(uScale);
-    float edgeN = fogLod(p, lz + 2.5, vec2(uTime * 0.4, uTime * 0.15), 7.0).x;
-    float fe = smoothstep(0.4, 0.6, fm + (edgeN - 0.5) * 0.3);
+    float fe = smoothstep(0.4, 0.6, fm + (W.w - 0.5) * 0.3);
     if (fe > 0.0) {
-      // подложка: светлая дымка с мягкими перепадами — без черноты
-      float hz = fogLod(p, lz - 1.0, vec2(uTime * 0.3, -uTime * 0.2), 3.0).x;
-      vec3 hidden = mix(vec3(0.33, 0.34, 0.36), vec3(0.5, 0.5, 0.51), smoothstep(0.3, 0.7, hz));
-      // сквозь дымку видна приглушённая местность (ползунок мастера)
+      // подложка: светлая дымка; сквозь неё — приглушённая местность (ползунок мастера)
+      vec3 base = mix(vec3(0.33, 0.34, 0.36), vec3(0.5, 0.5, 0.51), smoothstep(0.3, 0.7, W.z));
       float g = dot(col, vec3(0.3, 0.59, 0.11));
       vec3 ghost = mix(vec3(g), col, 0.35) * 0.8 + vec3(0.04, 0.035, 0.03);
-      hidden = mix(hidden, ghost, uFogGhost * 0.85);
-      // три слоя: крупный на восток, средний на северо-запад, мелкий на юг
-      vec2 dirs[3] = vec2[3](vec2(1.6, 0.4), vec2(-1.1, -0.9), vec2(0.3, 1.4));
-      float bias[3] = float[3](-0.6, 0.2, 1.0);
-      for (int k = 0; k < 3; k++) {
-        vec2 cl = fogLod(p, lz + bias[k], dirs[k] * uTime, 11.0 + float(k) * 17.0);
-        float dens = smoothstep(0.46, 0.64, cl.x);
-        // тень верхнего слоя на нижнем
-        hidden *= 1.0 - 0.18 * dens;
-        vec3 cc = mix(vec3(0.42, 0.42, 0.43), vec3(0.8, 0.79, 0.76), cl.y) * (0.92 + 0.05 * float(k));
-        hidden = mix(hidden, cc, dens * mix(0.85, 0.45, uFogGhost));
-      }
+      base = mix(base, ghost, uFogGhost * 0.85);
+      vec3 hidden = base * FC.a + FC.rgb;
       float rim = fe * (1.0 - fe) * 4.0;
       col = mix(col, col * vec3(0.6, 0.52, 0.42), rim * 0.5 * uFogStrength);
       col = mix(col, hidden, fe * uFogStrength);
@@ -963,6 +985,43 @@ export class MapRenderer {
     F.count = ops.length;
   }
 
+  ensureOverFbo(k) {
+    const gl = this.gl;
+    const w = Math.max(1, Math.round(this.canvas.width * k)), h = Math.max(1, Math.round(this.canvas.height * k));
+    if (this.overFbo && this.overFbo.w === w && this.overFbo.h === h) return this.overFbo;
+    const f = this.overFbo || { fb: gl.createFramebuffer() };
+    for (const t of ['t0', 't1']) {
+      if (f[t]) gl.deleteTexture(f[t]);
+      f[t] = this.makeTex();
+      gl.bindTexture(gl.TEXTURE_2D, f[t]);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+    }
+    gl.bindFramebuffer(gl.FRAMEBUFFER, f.fb);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, f.t0, 0);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT1, gl.TEXTURE_2D, f.t1, 0);
+    gl.drawBuffers([gl.COLOR_ATTACHMENT0, gl.COLOR_ATTACHMENT1]);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    f.w = w; f.h = h;
+    this.overFbo = f;
+    return f;
+  }
+
+  ensureTerrainFbo() {
+    const gl = this.gl, w = this.canvas.width, h = this.canvas.height;
+    if (this.terrainFbo && this.terrainFbo.w === w && this.terrainFbo.h === h) return;
+    const f = this.terrainFbo || { fb: gl.createFramebuffer() };
+    if (f.tex) gl.deleteTexture(f.tex);
+    f.tex = this.makeTex();
+    gl.bindTexture(gl.TEXTURE_2D, f.tex);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, f.fb);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, f.tex, 0);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    f.w = w; f.h = h;
+    this.terrainFbo = f;
+    this.terrainKey = null;
+  }
+
   // экранный буфер тумана (R = насколько скрыто)
   drawFog() {
     const gl = this.gl, v = this.viewer, w = this.canvas.width, h = this.canvas.height;
@@ -1193,36 +1252,72 @@ export class MapRenderer {
     this.syncFog();
     gl.bindVertexArray(this.quadVao);
     const mix = Math.min(1, Math.max(0, set.styleMix));
-    if (mix > 0.001) this.drawTiles();
-    const lines = !!this.lines && mix < 0.999;
-    if (lines) this.drawLines();
-    if (set.fogOn) this.drawFog();
-    if (v.frame % 120 === 0) this.gcTiles();
 
     const P = this.fx;
-    gl.viewport(0, 0, this.canvas.width, this.canvas.height);
+    const time = set.animate ? ((now - this.start) / 1000) % 3600 : 0;
+    // Местность пересчитываем только когда изменился вид или настройки (и изредка — ради бликов воды).
+    const key = [v.cx, v.cy, v.scale, this.canvas.width, this.canvas.height, set.season, mix, set.detail,
+      v.tilesLoaded || 0, this.lines ? 1 : 0].join('|');
+    const stale = key !== this.terrainKey || (set.animate && now - this.terrainAt > 400);
+    this.ensureTerrainFbo();
     gl.useProgram(P.p);
-    gl.uniform3f(P.u.uView, v.cx, v.cy, v.scale);
-    gl.uniform2f(P.u.uRes, v.vw, v.vh);
-    gl.uniform2f(P.u.uMap, v.W, v.H);
-    gl.uniform1f(P.u.uScale, v.scale);
-    gl.uniform1f(P.u.uTime, set.animate ? ((now - this.start) / 1000) % 3600 : 0);
-    gl.uniform1f(P.u.uSeason, set.season);
-    gl.uniform1f(P.u.uMix, mix);
-    gl.uniform1f(P.u.uFogOn, set.fogOn ? 1 : 0);
-    gl.uniform1f(P.u.uFogStrength, set.fogStrength);
-    gl.uniform1f(P.u.uFogGhost, set.fogGhost);
-    gl.uniform1f(P.u.uClouds, set.clouds ? 1 : 0);
-    gl.uniform1f(P.u.uDetail, set.detail ?? 1);
-    gl.uniform1f(P.u.uLines, lines ? 1 : 0);
-    const units = [['uT0', this.tex.t0], ['uT1', this.tex.t1], ['uT2', this.tex.t2], ['uT3', this.tex.t3],
-      ['uFog', set.fogOn ? this.fogFbo.tex : this.fogTex], ['uBase', mix > 0.001 ? this.baseTex : this.fogTex],
-      ['uRoads', lines ? this.lineFbo.roads : this.fogTex], ['uRivers', lines ? this.lineFbo.rivers : this.fogTex]];
-    units.forEach(([name, tex], i) => {
+    const uni = () => {
+      gl.uniform3f(P.u.uView, v.cx, v.cy, v.scale);
+      gl.uniform2f(P.u.uRes, v.vw, v.vh);
+      gl.uniform2f(P.u.uMap, v.W, v.H);
+      gl.uniform1f(P.u.uScale, v.scale);
+      gl.uniform1f(P.u.uTime, time);
+      gl.uniform1f(P.u.uSeason, set.season);
+      gl.uniform1f(P.u.uMix, mix);
+      gl.uniform1f(P.u.uFogOn, set.fogOn ? 1 : 0);
+      gl.uniform1f(P.u.uFogStrength, set.fogStrength);
+      gl.uniform1f(P.u.uFogGhost, set.fogGhost);
+      gl.uniform1f(P.u.uClouds, set.clouds ? 1 : 0);
+      gl.uniform1f(P.u.uDetail, set.detail ?? 1);
+    };
+    uni();
+    const bindUnits = units => units.forEach(([name, tex], i) => {
       gl.activeTexture(gl.TEXTURE0 + i);
       gl.bindTexture(gl.TEXTURE_2D, tex);
       gl.uniform1i(P.u[name], i);
     });
+    if (stale) {
+      if (mix > 0.001) this.drawTiles();
+      const lines = !!this.lines && mix < 0.999;
+      if (lines) this.drawLines();
+      gl.useProgram(P.p);
+      gl.bindVertexArray(this.quadVao);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, this.terrainFbo.fb);
+      gl.viewport(0, 0, this.canvas.width, this.canvas.height);
+      gl.uniform1i(P.u.uPass, 0);
+      gl.uniform1f(P.u.uLines, lines ? 1 : 0);
+      bindUnits([['uT0', this.tex.t0], ['uT1', this.tex.t1], ['uT2', this.tex.t2], ['uT3', this.tex.t3],
+        ['uBase', mix > 0.001 ? this.baseTex : this.fogTex],
+        ['uRoads', lines ? this.lineFbo.roads : this.fogTex], ['uRivers', lines ? this.lineFbo.rivers : this.fogTex],
+        ['uFog', this.fogTex], ['uTerrain', this.fogTex], ['uOver0', this.fogTex], ['uOver1', this.fogTex]]);
+      gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+      this.terrainKey = key;
+      this.terrainAt = now;
+    }
+    if (set.fogOn) this.drawFog();
+    if (v.frame % 120 === 0) this.gcTiles();
+    gl.useProgram(P.p);
+    gl.bindVertexArray(this.quadVao);
+    const dummy = [['uT0', this.tex.t0], ['uT1', this.tex.t1], ['uT2', this.tex.t2], ['uT3', this.tex.t3],
+      ['uBase', this.fogTex], ['uRoads', this.fogTex], ['uRivers', this.fogTex]];
+    // облака и клубы тумана — в пониженном разрешении (они мягкие, разницы не видно)
+    const ov = this.ensureOverFbo(set.overScale || 0.5);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, ov.fb);
+    gl.viewport(0, 0, ov.w, ov.h);
+    gl.uniform1i(P.u.uPass, 2);
+    bindUnits([...dummy, ['uTerrain', this.fogTex], ['uFog', this.fogTex], ['uOver0', this.fogTex], ['uOver1', this.fogTex]]);
+    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.viewport(0, 0, this.canvas.width, this.canvas.height);
+    gl.uniform1i(P.u.uPass, 1);
+    bindUnits([...dummy, ['uTerrain', this.terrainFbo.tex], ['uFog', set.fogOn ? this.fogFbo.tex : this.fogTex],
+      ['uOver0', ov.t0], ['uOver1', ov.t1]]);
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
     gl.activeTexture(gl.TEXTURE0);
     this.drawLabels(set);
