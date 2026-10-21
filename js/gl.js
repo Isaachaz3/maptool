@@ -814,7 +814,7 @@ export class MapRenderer {
     this.viewer = viewer;
     this.fog = fog;
     this.opts = opts;
-    const gl = canvas.getContext('webgl2', { antialias: false, alpha: false, premultipliedAlpha: false, preserveDrawingBuffer: false });
+    const gl = canvas.getContext('webgl2', { antialias: false, alpha: false, premultipliedAlpha: false, preserveDrawingBuffer: false, powerPreference: 'high-performance' });
     if (!gl) throw new Error('WebGL2 недоступен');
     this.gl = gl;
     const dbg = gl.getExtension('WEBGL_debug_renderer_info');
