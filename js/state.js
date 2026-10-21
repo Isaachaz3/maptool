@@ -34,8 +34,10 @@ export function defaultState() {
     styleMix: 0,            // 0 — рисованная, 1 — оригинал, между — плавное смешение
     showLabels: true,
     season: 1,              // 0 весна, 1 лето, 2 осень, 3 зима (дробные — переходы)
-    clouds: true,
+    clouds: true,           // экран мастера
     animate: true,
+    playerClouds: true,     // экран игроков
+    playerAnimate: true,
     fogGhost: 0.2,          // насколько сквозь туман видна местность
     quality: 'medium',      // качество экрана мастера: high | medium | low
     playerQuality: 'high',  // качество экрана игроков
@@ -123,16 +125,18 @@ export function fmtKm(km) {
 export function uid() { return Math.random().toString(36).slice(2, 10); }
 
 export const QUALITY = {
-  high: { resScale: 2, fps: 60, detail: 1, overScale: 0.5 },
-  medium: { resScale: 1, fps: 30, detail: 1, overScale: 0.5 },
-  low: { resScale: 0.6, fps: 20, detail: 0, overScale: 0.25 },
+  // fps — частота кадров анимации (облака плывут медленно, больше не нужно); взаимодействие рисуется сразу
+  high: { resScale: 2, fps: 30, detail: 1, overScale: 0.5 },
+  medium: { resScale: 1, fps: 24, detail: 1, overScale: 0.5 },
+  low: { resScale: 0.6, fps: 15, detail: 0, overScale: 0.25 },
 };
 
 // Настройки WebGL-рендера из состояния кампании
 export function renderSettings(S, isPlayer) {
   const q = QUALITY[isPlayer ? S.playerQuality : S.quality] || QUALITY.medium;
   return {
-    styleMix: S.styleMix, labels: S.showLabels, season: S.season, clouds: S.clouds, animate: S.animate,
+    styleMix: S.styleMix, labels: S.showLabels, season: S.season,
+    clouds: isPlayer ? S.playerClouds : S.clouds, animate: isPlayer ? S.playerAnimate : S.animate,
     fogOn: S.fogEnabled, fogStrength: isPlayer ? 1 : S.gmFogOpacity, fogGhost: S.fogGhost,
     resScale: q.resScale, detail: q.detail, fps: q.fps, overScale: q.overScale,
   };

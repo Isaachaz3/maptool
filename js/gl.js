@@ -387,6 +387,15 @@ vec4 trees(vec2 p, float c, float lat, float snow) {
   return acc;
 }
 
+// Блики на воде во времени t: в проходе местности считаются при t = 0, а в лёгком проходе поверх кэша
+// добавляется только разница — так вода «живая», но местность ради неё не пересчитывается.
+float riverGlint(vec2 p, vec4 RV, float t, float zr) {
+  float flow = sin(6.2832 * (RV.b * 4.0) - t * 2.4 + (noise(p * 0.3) - 0.5) * 5.0);
+  return smoothstep(0.7, 1.0, flow) * noise(p * 0.9 + t * 0.25) * 0.14 * zr * smoothstep(0.15, 0.6, RV.g)
+       + (noise(p * 0.45 + vec2(t * 0.35, t * 0.1)) - 0.5) * 0.05 * zr;
+}
+float waterGlint(vec2 p, float t) { return (noise(p * 0.15 + vec2(t * 0.2, t * 0.07)) - 0.5) * 0.04; }
+
 // Погодное облако уровня n: (плотность облака, тень). Узор уровня фиксирован — переход по зуму плавный.
 vec2 weatherCloud(vec2 p, float n, vec2 wind, float cov) {
   float f = 0.006 * exp2(n);
@@ -395,8 +404,8 @@ vec2 weatherCloud(vec2 p, float n, vec2 wind, float cov) {
   vec2 q = (p - wind) * f + off;
   vec2 qw = q + vec2(fbm(q * 1.3, 3, cpx * 1.3), fbm(q * 1.3 + 5.2, 3, cpx * 1.3)) * 0.35;
   float c = fbm(qw, 6, cpx);
-  vec2 qs = q - vec2(30.0, 24.0) * 0.006;   // тень смещена на постоянную долю облака
-  vec2 qsw = qs + vec2(fbm(qs * 1.3, 3, cpx * 1.3), fbm(qs * 1.3 + 5.2, 3, cpx * 1.3)) * 0.35;
+  // тень смещена на постоянную долю облака; искажение то же (оно плавное) — не пересчитываем
+  vec2 qsw = qw - vec2(30.0, 24.0) * 0.006;
   float sh = smoothstep(cov, cov + 0.1, fbm(qsw, 6, cpx));
   float cl = smoothstep(cov, cov + 0.05, c) * (0.6 + 0.4 * smoothstep(cov, cov + 0.25, c));
   return vec2(cl, sh);
@@ -404,19 +413,20 @@ vec2 weatherCloud(vec2 p, float n, vec2 wind, float cov) {
 
 // Облака тумана: уровень n — свой фиксированный узор (частота 2^n), поэтому при зуме
 // соседние уровни плавно перетекают друг в друга без скачков. Возвращает (плотность, освещённость).
-vec2 fogLevel(vec2 p, float n, vec2 drift, float seed) {
+vec2 fogLevel(vec2 p, float n, vec2 drift, float seed, bool lit) {
   float f = 0.006 * exp2(n);
   vec2 off = vec2(hash(vec2(n + 50.0, seed)), hash(vec2(seed, n + 90.0))) * 100.0;
   vec2 q = (p + drift * 0.3) * f + off;  // дрейф в px карты в секунду
   vec2 w = q + vec2(fbm(q * 0.7, 3, 8.0), fbm(q * 0.7 + 4.3, 3, 8.0)) * 1.2;
   float c = fbm(w, 4, 8.0);
+  if (!lit) return vec2(c, 0.5);   // освещение нужно только клубам, не кромке и не дымке
   float c2 = fbm(w + vec2(0.07), 4, 8.0);
   return vec2(c, clamp((c - c2) * 4.0 + 0.55, 0.0, 1.0));
 }
-vec2 fogLod(vec2 p, float lz, vec2 drift, float seed) {
+vec2 fogLod(vec2 p, float lz, vec2 drift, float seed, bool lit) {
   float l0 = floor(lz), lf = lz - l0;
   lf = lf * lf * (3.0 - 2.0 * lf);
-  return mix(fogLevel(p, l0, drift, seed), fogLevel(p, l0 + 1.0, drift, seed), lf);
+  return mix(fogLevel(p, l0, drift, seed, lit), fogLevel(p, l0 + 1.0, drift, seed, lit), lf);
 }
 
 void main() {
@@ -465,6 +475,10 @@ void main() {
 
   col = vec3(0.0);
   vec3 painted = vec3(0.0), orig = vec3(0.0);
+  // высота рельефа и её наклон (конечные разности) — одна на рисованную карту и оригинал
+  float he = max(px * 1.2, 0.3);
+  float h0 = heightAt(p);
+  vec2 hg = vec2(heightAt(p + vec2(he, 0.0)) - h0, heightAt(p + vec2(0.0, he)) - h0) / he;
 
   if (uMix > 0.001) {
     // ---------- оригинальная карта + сезоны поверх ----------
@@ -480,9 +494,7 @@ void main() {
     orig = clamp(mix(vec3(dot(orig, vec3(0.3, 0.59, 0.11))), orig, 1.15), 0.0, 1.0);
     // отмывка рельефа по разметке — горы на картинке становятся объёмными
     if (sd(t0.b, SDF_R) > -10.0 || sd(t1.r, SDF_R) > -10.0) {
-      float eo = max(px * 1.2, 0.3);
-      float ho = heightAt(p);
-      vec3 no = normalize(vec3(-(heightAt(p + vec2(eo, 0.0)) - ho) / eo * 18.0, -(heightAt(p + vec2(0.0, eo)) - ho) / eo * 18.0, 1.0));
+      vec3 no = normalize(vec3(-hg * 18.0, 1.0));
       vec3 Lo = normalize(vec3(-1.0, -1.0, 1.2));
       orig *= mix(1.0, clamp(dot(no, Lo) / Lo.z, 0.5, 1.3), 0.55);
     }
@@ -523,10 +535,7 @@ void main() {
     col = mix(col, forest * (0.85 + 0.3 * noise(p * 0.5)), mF);
 
     // горы: серый камень
-    float e = max(px * 1.2, 0.3);
-    float h0 = heightAt(p);
-    float hx = heightAt(p + vec2(e, 0.0)), hy = heightAt(p + vec2(0.0, e));
-    vec3 n = normalize(vec3(-(hx - h0) / e * 22.0, -(hy - h0) / e * 22.0, 1.0));
+    vec3 n = normalize(vec3(-hg * 22.0, 1.0));
     vec3 L = normalize(vec3(-1.0, -1.0, 1.2));
     float shade = clamp(dot(n, L) / L.z, 0.3, 1.45);
     vec3 rock = mix(vec3(0.3, 0.29, 0.25), vec3(0.6, 0.6, 0.57), smoothstep(0.25, 0.95, h0));
@@ -555,7 +564,7 @@ void main() {
     vec3 deep = seas(vec3(0.11, 0.22, 0.22), vec3(0.1, 0.22, 0.22), vec3(0.1, 0.2, 0.2), vec3(0.13, 0.2, 0.22));
     vec3 water = mix(shallow, deep, smoothstep(2.0, 60.0, dpx + (noise(p * 0.03) - 0.5) * 30.0));
     float rv = smoothstep(0.4, 1.4, uScale);
-    water += (noise(p * 0.15 + vec2(uTime * 0.2, uTime * 0.07)) - 0.5) * 0.04 * rv;
+    water += waterGlint(p, uTime) * rv;
     // пена у берега
     float foam = (1.0 - smoothstep(0.3 * aa, 1.6 * aa + 0.6, abs(sW - (1.2 + 0.6 * sin(uTime * 0.8 + p.x * 0.05)))));
     water = mix(water, vec3(0.75, 0.78, 0.74), foam * 0.6 * smoothstep(0.3, 0.9, uScale));
@@ -572,7 +581,10 @@ void main() {
       float lv = log2(max(cell, 1.6));
       float l0 = floor(lv);
       float fr = smoothstep(0.0, 1.0, lv - l0);
-      vec4 tr = mix(trees(p, exp2(l0), lat, snow), trees(p, exp2(l0 + 1.0), lat, snow), fr);
+      // второй уровень деревьев считаем только на переходе между уровнями
+      vec4 tr = fr < 0.02 ? trees(p, exp2(l0), lat, snow)
+              : fr > 0.98 ? trees(p, exp2(l0 + 1.0), lat, snow)
+              : mix(trees(p, exp2(l0), lat, snow), trees(p, exp2(l0 + 1.0), lat, snow), fr);
       if (tr.a > 0.001) col = mix(col, tr.rgb / tr.a, tr.a * tv);
     }
 
@@ -592,9 +604,7 @@ void main() {
         float zr = smoothstep(0.6, 2.5, uScale);
         col = mix(col, col * 0.72, (bankc - wcov) * 0.7 * zr);  // мокрый тёмный берег
         vec3 rc = mix(shallow * 1.15, mix(shallow, deep, 0.6), smoothstep(0.1, 0.95, cen) * (0.35 + 0.65 * zr));
-        float flow = sin(6.2832 * (ph * 4.0) - uTime * 2.4 + (noise(p * 0.3) - 0.5) * 5.0);
-        rc += smoothstep(0.7, 1.0, flow) * noise(p * 0.9 + uTime * 0.25) * 0.14 * zr * smoothstep(0.15, 0.6, cen);
-        rc += (noise(p * 0.45 + vec2(uTime * 0.35, uTime * 0.1)) - 0.5) * 0.05 * zr;
+        rc += riverGlint(p, RV, uTime, zr);
         float edgeF = (1.0 - smoothstep(0.0, 0.22, cen)) * zr;
         rc = mix(rc, vec3(0.66, 0.7, 0.66), edgeF * 0.45);
         rc = mix(rc, vec3(0.78, 0.84, 0.87), snow * SW.w * 0.65);
@@ -643,17 +653,18 @@ void main() {
       w.xy = mix(weatherCloud(p, l0, wind, cov), weatherCloud(p, l0 + 1.0, wind, cov), lf);
     }
     vec4 fc = vec4(0.0, 0.0, 0.0, 1.0);  // клубы тумана: hidden = основа * a + rgb
-    if (uFogOn > 0.5) {
+    // там, где туман уже открыт (с запасом на рваную кромку), клубы не нужны
+    if (uFogOn > 0.5 && texture(uFog, vScr).r > 0.08) {
       float lz = log2(uScale);
-      w.w = fogLod(p, lz + 2.5, vec2(uTime * 0.4, uTime * 0.15), 7.0).x;
-      w.z = fogLod(p, lz - 1.0, vec2(uTime * 0.3, -uTime * 0.2), 3.0).x;
+      w.w = fogLod(p, lz + 2.5, vec2(uTime * 0.4, uTime * 0.15), 7.0, false).x;
+      w.z = fogLod(p, lz - 1.0, vec2(uTime * 0.3, -uTime * 0.2), 3.0, false).x;
       // три слоя: крупный на восток, средний на северо-запад, мелкий на юг
       vec2 dirs[3] = vec2[3](vec2(1.6, 0.4), vec2(-1.1, -0.9), vec2(0.3, 1.4));
       float bias[3] = float[3](-0.6, 0.2, 1.0);
       float wgt = mix(0.85, 0.45, uFogGhost);
       for (int k = 0; k < 3; k++) {
         if (uDetail < 0.5 && k != 1) continue;
-        vec2 cl = fogLod(p, lz + bias[k], dirs[k] * uTime, 11.0 + float(k) * 17.0);
+        vec2 cl = fogLod(p, lz + bias[k], dirs[k] * uTime, 11.0 + float(k) * 17.0, true);
         float dens = smoothstep(0.46, 0.64, cl.x);
         float shade = 1.0 - 0.18 * dens;          // тень слоя на том, что под ним
         vec3 cc = mix(vec3(0.42, 0.42, 0.43), vec3(0.8, 0.79, 0.76), cl.y) * (0.92 + 0.05 * float(k));
@@ -665,6 +676,20 @@ void main() {
     o = w;
     o2 = fc;
     return;
+  }
+
+  // живая вода поверх кэша местности (разница бликов между «сейчас» и t = 0)
+  if (uTime > 0.0 && uMix < 0.999) {
+    float paint = 1.0 - uMix;
+    float mWa = smoothstep(-0.5, 0.5, sd(T0(p).r, SDF_R));
+    col += (waterGlint(p, uTime) - waterGlint(p, 0.0)) * smoothstep(0.4, 1.4, uScale) * mWa * paint;
+    if (uLines > 0.5) {
+      vec4 RV = texture(uRivers, vScr);
+      if (RV.r > 0.01) {
+        float zr = smoothstep(0.6, 2.5, uScale);
+        col += vec3(riverGlint(p, RV, uTime, zr) - riverGlint(p, RV, 0.0, zr)) * RV.r * smoothstep(0.05, 0.15, uScale) * paint;
+      }
+    }
   }
 
   vec4 W = texture(uOver0, vScr), FC = texture(uOver1, vScr);
@@ -806,6 +831,8 @@ function buildStrips(lines) {
   }
   return { V, I, count: ii };
 }
+
+const MOVE_MS = 180;  // столько мс после последнего сдвига/зума карта считается «в движении»
 
 export class MapRenderer {
   // opts.getSettings() → { styleMix, season, clouds, animate, fogOn, fogStrength, fogGhost, detail, resScale, labels }
@@ -1006,10 +1033,14 @@ export class MapRenderer {
     return f;
   }
 
-  ensureTerrainFbo() {
-    const gl = this.gl, w = this.canvas.width, h = this.canvas.height;
-    if (this.terrainFbo && this.terrainFbo.w === w && this.terrainFbo.h === h) return;
-    const f = this.terrainFbo || { fb: gl.createFramebuffer() };
+  // Буфер местности: полный (k = 1) и половинный (k = 0.5, пока карту двигают)
+  ensureTerrainFbo(k) {
+    const gl = this.gl;
+    const w = Math.max(1, Math.round(this.canvas.width * k)), h = Math.max(1, Math.round(this.canvas.height * k));
+    this.terrainFbos = this.terrainFbos || {};
+    let f = this.terrainFbos[k];
+    if (f && f.w === w && f.h === h) return f;
+    if (!f) f = this.terrainFbos[k] = { fb: gl.createFramebuffer(), k };
     if (f.tex) gl.deleteTexture(f.tex);
     f.tex = this.makeTex();
     gl.bindTexture(gl.TEXTURE_2D, f.tex);
@@ -1017,9 +1048,8 @@ export class MapRenderer {
     gl.bindFramebuffer(gl.FRAMEBUFFER, f.fb);
     gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, f.tex, 0);
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-    f.w = w; f.h = h;
-    this.terrainFbo = f;
-    this.terrainKey = null;
+    f.w = w; f.h = h; f.key = null;
+    return f;
   }
 
   // экранный буфер тумана (R = насколько скрыто)
@@ -1240,6 +1270,11 @@ export class MapRenderer {
     return this.ready && s.animate && (s.clouds || s.fogOn);
   }
 
+  // Нужен ли кадр, чтобы досчитать местность в полном разрешении после движения карты
+  pending(now) {
+    return this.ready && !!this.terrainCur && this.terrainCur.k < 1 && now - (this.viewChangedAt || 0) >= MOVE_MS;
+  }
+
   render(now) {
     const gl = this.gl, v = this.viewer, set = this.opts.getSettings();
     this.resize();
@@ -1255,11 +1290,15 @@ export class MapRenderer {
 
     const P = this.fx;
     const time = set.animate ? ((now - this.start) / 1000) % 3600 : 0;
+    // Пока карту двигают — местность в половинном разрешении; остановились — досчитываем полное.
+    const viewKey = [v.cx, v.cy, v.scale, this.canvas.width, this.canvas.height].join('|');
+    if (viewKey !== this.lastViewKey) { this.lastViewKey = viewKey; this.viewChangedAt = now; }
+    const moving = now - (this.viewChangedAt || 0) < MOVE_MS;
+    const tf = this.ensureTerrainFbo(moving ? 0.5 : 1);
     // Местность пересчитываем только когда изменился вид или настройки (и изредка — ради бликов воды).
-    const key = [v.cx, v.cy, v.scale, this.canvas.width, this.canvas.height, set.season, mix, set.detail,
-      v.tilesLoaded || 0, this.lines ? 1 : 0].join('|');
-    const stale = key !== this.terrainKey || (set.animate && now - this.terrainAt > 400);
-    this.ensureTerrainFbo();
+    const key = [viewKey, set.season, mix, set.detail, v.tilesLoaded || 0, this.lines ? 1 : 0].join('|');
+    const stale = key !== tf.key;
+    this.terrainCur = tf;
     gl.useProgram(P.p);
     const uni = () => {
       gl.uniform3f(P.u.uView, v.cx, v.cy, v.scale);
@@ -1287,20 +1326,25 @@ export class MapRenderer {
       if (lines) this.drawLines();
       gl.useProgram(P.p);
       gl.bindVertexArray(this.quadVao);
-      gl.bindFramebuffer(gl.FRAMEBUFFER, this.terrainFbo.fb);
-      gl.viewport(0, 0, this.canvas.width, this.canvas.height);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, tf.fb);
+      gl.viewport(0, 0, tf.w, tf.h);
       gl.uniform1i(P.u.uPass, 0);
       gl.uniform1f(P.u.uLines, lines ? 1 : 0);
+      gl.uniform1f(P.u.uTime, 0);  // местность статична; движение воды добавляет проход поверх
       bindUnits([['uT0', this.tex.t0], ['uT1', this.tex.t1], ['uT2', this.tex.t2], ['uT3', this.tex.t3],
         ['uBase', mix > 0.001 ? this.baseTex : this.fogTex],
         ['uRoads', lines ? this.lineFbo.roads : this.fogTex], ['uRivers', lines ? this.lineFbo.rivers : this.fogTex],
         ['uFog', this.fogTex], ['uTerrain', this.fogTex], ['uOver0', this.fogTex], ['uOver1', this.fogTex]]);
       gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
       gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-      this.terrainKey = key;
-      this.terrainAt = now;
+      tf.key = key;
+      tf.lines = lines;
+      gl.uniform1f(P.u.uTime, time);
     }
-    if (set.fogOn) this.drawFog();
+    // туман перерисовываем только если сдвинулся вид или изменились фигуры
+    const fogKey = viewKey + '|' + this.fog.version;
+    if (set.fogOn && (fogKey !== this.fogKey || !this.fogFbo)) { this.drawFog(); this.fogKey = fogKey; }
+    if (!set.fogOn) this.fogKey = null;
     if (v.frame % 120 === 0) this.gcTiles();
     gl.useProgram(P.p);
     gl.bindVertexArray(this.quadVao);
@@ -1308,15 +1352,20 @@ export class MapRenderer {
       ['uBase', this.fogTex], ['uRoads', this.fogTex], ['uRivers', this.fogTex]];
     // облака и клубы тумана — в пониженном разрешении (они мягкие, разницы не видно)
     const ov = this.ensureOverFbo(set.overScale || 0.5);
-    gl.bindFramebuffer(gl.FRAMEBUFFER, ov.fb);
-    gl.viewport(0, 0, ov.w, ov.h);
-    gl.uniform1i(P.u.uPass, 2);
-    bindUnits([...dummy, ['uTerrain', this.fogTex], ['uFog', this.fogTex], ['uOver0', this.fogTex], ['uOver1', this.fogTex]]);
-    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
-    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    if (set.clouds || set.fogOn) {
+      gl.bindFramebuffer(gl.FRAMEBUFFER, ov.fb);
+      gl.viewport(0, 0, ov.w, ov.h);
+      gl.uniform1i(P.u.uPass, 2);
+      bindUnits([...dummy, ['uTerrain', this.fogTex], ['uFog', set.fogOn && this.fogFbo ? this.fogFbo.tex : this.fogTex],
+        ['uOver0', this.fogTex], ['uOver1', this.fogTex]]);
+      gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    }
     gl.viewport(0, 0, this.canvas.width, this.canvas.height);
     gl.uniform1i(P.u.uPass, 1);
-    bindUnits([...dummy, ['uTerrain', this.terrainFbo.tex], ['uFog', set.fogOn ? this.fogFbo.tex : this.fogTex],
+    gl.uniform1f(P.u.uLines, tf.lines ? 1 : 0);
+    if (tf.lines && this.lineFbo) dummy[6] = ['uRivers', this.lineFbo.rivers];
+    bindUnits([...dummy, ['uTerrain', tf.tex], ['uFog', set.fogOn ? this.fogFbo.tex : this.fogTex],
       ['uOver0', ov.t0], ['uOver1', ov.t1]]);
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
     gl.activeTexture(gl.TEXTURE0);

@@ -168,3 +168,9 @@ dialog.place .wiki a { color: var(--accent); }
   background: rgba(40,14,10,.88); border: 2px solid #8e2a1c; border-radius: 10px; color: #ffdccf;
   font: 700 26px "Alegreya SC", Georgia, serif; letter-spacing: .04em; transition: opacity .6s; pointer-events: none; }
 #pnotice.hidden { opacity: 0; }
+
+/* настройки по экранам */
+.screens { display: grid; grid-template-columns: 1fr 96px 96px; gap: 6px 8px; align-items: center; margin-top: 8px; font-size: 13px; }
+.screens b { font-weight: 600; color: var(--muted); font-size: 12px; text-align: center; }
+.screens select { width: 100%; margin: 0; padding: 4px; }
+.screens input[type=checkbox] { justify-self: center; width: 16px; height: 16px; }

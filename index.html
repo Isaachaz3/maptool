@@ -4,8 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Ходилка по Фаэруну — мастер</title>
-<link rel="stylesheet" href="assets/fonts.css?v=bf52099b">
-<link rel="stylesheet" href="css/style.css?v=bf52099b">
+<link rel="stylesheet" href="assets/fonts.css?v=5806c8eb">
+<link rel="stylesheet" href="css/style.css?v=5806c8eb">
 </head>
 <body class="gm">
 <canvas id="gl"></canvas>
@@ -71,24 +71,15 @@
       <button data-season="0">🌱</button><button data-season="1">☀️</button><button data-season="2">🍂</button><button data-season="3">❄️</button>
     </div>
     <input type="range" id="season" min="0" max="3.99" step="0.01">
-    <label class="check"><input type="checkbox" id="clouds"> Облака и их тени</label>
-    <label class="check"><input type="checkbox" id="animate"> Анимация (облака, туман)</label>
     <label class="check"><input type="checkbox" id="showSettlements"> Значки поселений</label>
     <label class="check"><input type="checkbox" id="showLabels"> Названия (при приближении)</label>
-    <label>Качество — мой экран
-      <select id="quality">
-        <option value="high">Высокое (60 к/с, чёткость экрана)</option>
-        <option value="medium">Среднее (30 к/с)</option>
-        <option value="low">Низкое (слабая видеокарта)</option>
-      </select>
-    </label>
-    <label>Качество — экран игроков
-      <select id="playerQuality">
-        <option value="high">Высокое (60 к/с, чёткость экрана)</option>
-        <option value="medium">Среднее (30 к/с)</option>
-        <option value="low">Низкое (слабая видеокарта)</option>
-      </select>
-    </label>
+    <div class="screens">
+      <span></span><b>Мой экран</b><b>Игроки</b>
+      <span>Качество</span><select id="quality"><option value="high">Высокое</option><option value="medium">Среднее</option><option value="low">Низкое</option></select><select id="playerQuality"><option value="high">Высокое</option><option value="medium">Среднее</option><option value="low">Низкое</option></select>
+      <span>Облака и тени</span><input type="checkbox" id="clouds"><input type="checkbox" id="playerClouds">
+      <span>Анимация</span><input type="checkbox" id="animate"><input type="checkbox" id="playerAnimate">
+    </div>
+    <p class="hint">Высокое — полная чёткость экрана; низкое — для слабой или встроенной видеокарты. Анимация — движение облаков, тумана и воды; без неё карта не нагружает видеокарту, пока её не трогают.</p>
   </section>
 
   <section>
@@ -245,6 +236,6 @@
   window.addEventListener('unhandledrejection', function (e) { __bootErr(String(e.reason && e.reason.message || e.reason)); });
   setTimeout(function () { if (!window.__appStarted) __bootErr('Приложение не запустилось. Обновите страницу с очисткой кэша (Ctrl+F5). Если не поможет — пришлите этот текст.'); }, 8000);
 </script>
-<script type="module" src="js/gm.js?v=bf52099b"></script>
+<script type="module" src="js/gm.js?v=5806c8eb"></script>
 </body>
 </html>

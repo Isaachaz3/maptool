@@ -1,15 +1,15 @@
 // Экран мастера.
-import { Viewer, loadInfo, isTyping } from './viewer.js?v=bf52099b';
-import { Fog } from './fog.js?v=bf52099b';
+import { Viewer, loadInfo, isTyping } from './viewer.js?v=5806c8eb';
+import { Fog } from './fog.js?v=5806c8eb';
 import {
   loadState, saveState, loadFogData, saveFogData, loadView, saveView, clearAll, channel,
   stepPoint, bearingTo, distKm, rumb, fmtKm, uid, defaultState,
-} from './state.js?v=bf52099b';
-import { trailLayer, waypointLayer, partyLayer, pingLayer, drawRuler, scaleBarLayer, settlementLayer } from './layers.js?v=bf52099b';
-import { EnemySim, Terrain, enemyLayer, defaultEnemyConfig } from './enemies.js?v=bf52099b';
-import { MapRenderer } from './gl.js?v=bf52099b';
-import { Places, placeLabelLayer, KIND_NAMES, wikiSummary, wikiUrl } from './places.js?v=bf52099b';
-import { renderSettings } from './state.js?v=bf52099b';
+} from './state.js?v=5806c8eb';
+import { trailLayer, waypointLayer, partyLayer, pingLayer, drawRuler, scaleBarLayer, settlementLayer } from './layers.js?v=5806c8eb';
+import { EnemySim, Terrain, enemyLayer, defaultEnemyConfig } from './enemies.js?v=5806c8eb';
+import { MapRenderer } from './gl.js?v=5806c8eb';
+import { Places, placeLabelLayer, KIND_NAMES, wikiSummary, wikiUrl } from './places.js?v=5806c8eb';
+import { renderSettings } from './state.js?v=5806c8eb';
 
 const $ = id => document.getElementById(id);
 const ICONS = ['★', '🏰', '🏘️', '⛺', '⚔️', '💀', '🐉', '🗝️', '💰', '❓', '❗', '⛪', '🌲', '⛰️', '🕳️', '⚓', '🔥', '👁️'];
@@ -560,6 +560,8 @@ $('seasonSeg').onclick = e => { const b = e.target.closest('button'); if (b) ani
 $('season').addEventListener('input', () => { S.season = +$('season').value; commit(); });
 bindCheck('clouds', 'clouds');
 bindCheck('animate', 'animate');
+bindCheck('playerClouds', 'playerClouds');
+bindCheck('playerAnimate', 'playerAnimate');
 bindCheck('showSettlements', 'showSettlements');
 bindCheck('showLabels', 'showLabels');
 $('quality').addEventListener('change', () => { S.quality = $('quality').value; commit(); });
@@ -740,7 +742,7 @@ function renderPanel() {
   document.querySelectorAll('#seasonSeg button').forEach(b => b.classList.toggle('active', +b.dataset.season === si));
   $('seasonName').textContent = SEASONS[si];
   if (document.activeElement !== $('season')) $('season').value = S.season;
-  for (const k of ['clouds', 'animate', 'showSettlements', 'showLabels']) $(k).checked = S[k];
+  for (const k of ['clouds', 'animate', 'playerClouds', 'playerAnimate', 'showSettlements', 'showLabels']) $(k).checked = S[k];
   $('quality').value = S.quality;
   $('playerQuality').value = S.playerQuality || 'high';
   $('fogGhost').value = S.fogGhost; $('fogGhostVal').textContent = Math.round(S.fogGhost * 100) + '%';

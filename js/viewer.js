@@ -164,12 +164,20 @@ export class Viewer {
         Math.exp(a.from.ls + (a.to.ls - a.from.ls) * e), k >= 1);
       if (k >= 1) this.anim = null;
     }
-    // постоянная анимация (облака, туман) идёт с ограничением кадров, действия пользователя — сразу
-    const anim = this.continuous && now - (this.lastDraw || 0) >= 1000 / (this.fps || 30) - 2;
-    if (this.dirty || anim) {
+    // Действия пользователя рисуются сразу. Постоянная анимация идёт с ограничением кадров:
+    // если анимируется только WebGL (облака, туман), 2D-слой с подписями и значками не перерисовываем.
+    const due = now - (this.lastDraw || 0) >= 1000 / (this.fps || 30) - 2;
+    const layersAnim = this.layers.some(l => l.animating && l.animating());
+    const R = this.renderer;
+    if (this.dirty || (this._cont && due) || (layersAnim && due)) {
       this.dirty = false;
       this.lastDraw = now;
       this.draw(now);
+    } else if (R && ((R.animating() && due) || R.pending(now))) {
+      // только карта: облака, туман или досчёт полного разрешения после движения
+      this.frame++;
+      this.lastDraw = now;
+      R.render(now);
     }
     requestAnimationFrame(this.loop);
   }
